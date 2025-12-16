@@ -41,12 +41,12 @@ Git tags and commits mirror this version.
 ---
 
 ### 🎛️ Floating Cascade Menu
-A turquoise heart 💖 fixed in the bottom-right corner.
+A turquoise heart ♥️ fixed in the bottom-right corner.
 
 Click to expand controls:
 
-- ❤️ **Show hearts**
-- 💔 **Hide liked videos**
+- ❤️‍ **Show hearts**
+- 🩵 **Hide liked videos**
 - 🩶 **Dim liked videos**
 - 💖 **Scan “Liked Videos” playlist**
 - 💗 **Import likes**
@@ -62,15 +62,18 @@ All toggles persist across reloads.
 You can populate the liked index using:
 
 ### ✔ Google Takeout
-- `Liked videos.json`
+- Import Youtube `MyActivity.json` from `My Activity` in [Google Takeout](https://takeout.google.com/)
 - Automatically parsed and deduplicated
+- Not as reliable as CSV option
 
 ### ✔ CSV
+- ***MOST RELIABLE AND RECOMMENDED FOR FIRST IMPORT***
+  - get likes google takeout misses
 - Must contain:
   - `action`
   - `video_link`
 - Rows with `action=liked` are imported
-- go to https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes middle click and leave it scrolling to make it hit the bottom and then run this in the browser console to get the CSV file.
+- Go to [Your likes and dislikes on YouTube videos](https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes) My Activity page and then middle click empty space, leave it scrolling down to make it hit the bottom and then run this in the browser console to get the CSV file.
   ```
   (() => {
     const videos = document.querySelectorAll(".xDtZAf");
@@ -135,10 +138,9 @@ You can populate the liked index using:
 
     console.log("CSV downloaded ✔");
   })();
-
   ```
-### ✔ Script Export
-- JSON backups exported by this script
+### ✔ Script Export Imports
+- Import JSON backups exported by this script
 
 ---
 
@@ -158,6 +160,7 @@ You can populate the liked index using:
   ```
   https://www.youtube.com/playlist?list=LL
   ```
+- Scroll to your desired point of videos in the playlist before activating scan
 - Optional scan limit (e.g. last 500 videos)
 
 ---
