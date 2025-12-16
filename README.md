@@ -70,7 +70,73 @@ You can populate the liked index using:
   - `action`
   - `video_link`
 - Rows with `action=liked` are imported
+- go to https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes middle click and leave it scrolling to make it hit the bottom and then run this in the browser console to get the CSV file.
+  ```
+  (() => {
+    const videos = document.querySelectorAll(".xDtZAf");
+    const rows = [];
+    const seen = new Set();
 
+    videos.forEach(video => {
+        try {
+            const actionElem = video.querySelector(".QTGV3c");
+            if (!actionElem) return;
+
+            // Grab only the text node directly inside .QTGV3c (not inside <a>)
+            const action = Array.from(actionElem.childNodes)
+                                .filter(n => n.nodeType === Node.TEXT_NODE)
+                                .map(n => n.textContent.trim())
+                                .join(" ")
+                                .toLowerCase(); // "liked" or "disliked"
+
+            const linkElem = actionElem.querySelector("a");
+            if (!linkElem) return;
+
+            const videoID = new URL(linkElem.href).searchParams.get("v");
+            if (!videoID || seen.has(videoID)) return;
+            seen.add(videoID);
+
+            const title = linkElem.textContent.trim() || "[deleted]";
+
+            let authorName = "[deleted]";
+            let authorURL = "[deleted]";
+            try {
+                const authorElem = video.querySelector(".SiEggd a");
+                if (authorElem) {
+                    authorName = authorElem.textContent.trim();
+                    authorURL = authorElem.href;
+                }
+            } catch {}
+
+            rows.push([
+                action, // now clean
+                `"${title.replaceAll('"','""')}"`,
+                `https://youtube.com/watch?v=${videoID}`,
+                `"${authorName.replaceAll('"','""')}"`,
+                authorURL
+            ]);
+
+        } catch (e) {}
+    });
+
+    console.log(`Extraction complete. Total videos found: ${rows.length}`);
+
+    // Build CSV
+    let csv = "action,video_title,video_link,author_name,author_link\n";
+    csv += rows.map(r => r.join(",")).join("\n");
+
+    // Download CSV
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+    a.download = "youtube_activity.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    console.log("CSV downloaded ✔");
+  })();
+
+  ```
 ### ✔ Script Export
 - JSON backups exported by this script
 
@@ -93,7 +159,6 @@ You can populate the liked index using:
   https://www.youtube.com/playlist?list=LL
   ```
 - Optional scan limit (e.g. last 500 videos)
-- Much faster than loading the entire playlist
 
 ---
 
@@ -115,7 +180,7 @@ You can populate the liked index using:
 1. Install **Violentmonkey**
 2. Create a new userscript
 3. Paste the contents of:
-   ```
+```
 youtube-liked-manager.user.js
 ```
 4. Save and open YouTube
