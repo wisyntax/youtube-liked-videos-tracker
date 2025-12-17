@@ -1,28 +1,16 @@
-# YouTube Liked Videos Checker & Manager
+# YouTube Liked Videos Manager
 
-A **Violentmonkey userscript** that locally tracks your liked YouTube videos and gives you advanced controls to hide, dim, mark, import, export, and manage them across YouTube.
+A **Violentmonkey userscript** that locally tracks your liked YouTube videos, add heart icons to liked video thumbnails, gives you controls to hide, dim, import, export, and manage them across YouTube.
 
 All data is stored **locally in your browser**. Nothing is sent anywhere. No account changes.
 
 ---
 
-## 📄 Script File
+## 🛠 Installation
 
-The full userscript lives here:
-
-```
-youtube-liked-manager.user.js
-```
-
-This file is the **single source of truth**.
-
-Versioning is controlled via the userscript header:
-
-```js
-// @version 1.3.0
-```
-
-Git tags and commits mirror this version.
+1. Install a userscript manager
+   - recommended [**Violentmonkey**](https://violentmonkey.github.io/)
+2. Go to [YouTubeLikedVideosManager.user.js](https://github.com/krahsiw/youtube-liked-videos-manager/raw/refs/heads/main/YouTubeLikedVideosManager.user.js) and install the script
 
 ---
 
@@ -35,7 +23,7 @@ Git tags and commits mirror this version.
   - Search
   - History
   - Playlists
-- Adds a heart overlay directly on the **thumbnail itself**
+- Adds a heart overlay on the thumbnails of liked videos
 - Layout-aware (grid, list, history, playlist)
 
 ---
@@ -57,88 +45,46 @@ All toggles persist across reloads.
 
 ---
 
+## 📃 Liked Playlist Scan
+ Initialize and populate the liked Index with this if your likes are under 5k. **If not, use Import Options**.
+- Use scan to update liked index
+  - **currently does not autoscroll so scroll to your desired point in the playlist before activating scan**
+- Works only on:
+  ```
+  https://www.youtube.com/playlist?list=LL
+  ```
+
+---
+
 ## 📥 Import Options
 
 You can populate the liked index using:
 
-### ✔ Google Takeout
-- Import Youtube `MyActivity.json` from `My Activity` in [Google Takeout](https://takeout.google.com/)
-- Automatically parsed and deduplicated
-- Not as reliable as CSV option
-
 ### ✔ CSV
 - ***MOST RELIABLE AND RECOMMENDED FOR FIRST IMPORT***
-  - get likes google takeout misses
-- Must contain:
-  - `action`
-  - `video_link`
-- Rows with `action=liked` are imported
-- Go to [Your likes and dislikes on YouTube videos](https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes) My Activity page and then middle click empty space, leave it scrolling down to make it hit the bottom and then run this in the browser console to get the CSV file.
-  ```
-  (() => {
-    const videos = document.querySelectorAll(".xDtZAf");
-    const rows = [];
-    const seen = new Set();
+  - tested on **45k+ likes**
+  - get likes google takeout option misses
 
-    videos.forEach(video => {
-        try {
-            const actionElem = video.querySelector(".QTGV3c");
-            if (!actionElem) return;
+1. Go to *Your likes and dislikes on YouTube videos* [My Activity page](https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes) and then scroll all the way to the end or open your browser console and run this script to do the same:
+   - ###### `pressing esc will stop the script prematurely`
+    ```js
+    window.stopScrolling=false;window.addEventListener("keydown",e=>e.key==="Escape"&&(window.stopScrolling=true));(async()=>{while(!document.querySelector("div.hV1B3e > div")&&!window.stopScrolling){window.scrollTo(0,document.documentElement.scrollHeight);await new Promise(r=>setTimeout(r,50))}console.log(window.stopScrolling?"Scrolling stopped via ESC ✔":"Reached the end ✔")})();
 
-            // Grab only the text node directly inside .QTGV3c (not inside <a>)
-            const action = Array.from(actionElem.childNodes)
-                                .filter(n => n.nodeType === Node.TEXT_NODE)
-                                .map(n => n.textContent.trim())
-                                .join(" ")
-                                .toLowerCase(); // "liked" or "disliked"
+    ``` 
+2. After your reach the end, run this script in your console to get the csv file:
+    ```js
+    (()=>{const r=[],s=new Set();document.querySelectorAll(".xDtZAf").forEach(v=>{try{const a=v.querySelector(".QTGV3c");if(!a)return;const action=Array.from(a.childNodes).filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join(" ").toLowerCase();const l=a.querySelector("a");if(!l)return;const id=new URL(l.href).searchParams.get("v");if(!id||s.has(id))return;s.add(id);const title=l.textContent.trim()||"[deleted]";let n="[deleted]",u="[deleted]";try{const ae=v.querySelector(".SiEggd a");if(ae){n=ae.textContent.trim();u=ae.href}}catch{}r.push([action,`"${title.replaceAll('"','""')}"`,`https://youtube.com/watch?v=${id}`,`"${n.replaceAll('"','""')}"`,u])}catch{}});console.log(`Extraction complete. Total videos found: ${r.length}`);let c="action,video_title,video_link,author_name,author_link\n"+r.map(x=>x.join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(c);a.download="youtube_activity.csv";document.body.appendChild(a);a.click();a.remove();console.log("CSV downloaded ✔")})();
+    ```
+3. Import the csv file.
 
-            const linkElem = actionElem.querySelector("a");
-            if (!linkElem) return;
+### ✔ Google Takeout
 
-            const videoID = new URL(linkElem.href).searchParams.get("v");
-            if (!videoID || seen.has(videoID)) return;
-            seen.add(videoID);
-
-            const title = linkElem.textContent.trim() || "[deleted]";
-
-            let authorName = "[deleted]";
-            let authorURL = "[deleted]";
-            try {
-                const authorElem = video.querySelector(".SiEggd a");
-                if (authorElem) {
-                    authorName = authorElem.textContent.trim();
-                    authorURL = authorElem.href;
-                }
-            } catch {}
-
-            rows.push([
-                action, // now clean
-                `"${title.replaceAll('"','""')}"`,
-                `https://youtube.com/watch?v=${videoID}`,
-                `"${authorName.replaceAll('"','""')}"`,
-                authorURL
-            ]);
-
-        } catch (e) {}
-    });
-
-    console.log(`Extraction complete. Total videos found: ${rows.length}`);
-
-    // Build CSV
-    let csv = "action,video_title,video_link,author_name,author_link\n";
-    csv += rows.map(r => r.join(",")).join("\n");
-
-    // Download CSV
-    const a = document.createElement("a");
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-    a.download = "youtube_activity.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    console.log("CSV downloaded ✔");
-  })();
-  ```
+- Import Youtube `MyActivity.json` from **My Activity** in [Google Takeout](https://takeout.google.com/)
+  - uses Google Takeout → My Activity → Youtube activity data
+- Better for low-end PCs if they can't use CSV option as it could take a toll if likes are over 20k
+- Not as reliable as CSV option
+  - Google Takeout has no reliable way to get likes and dislikes
+  - unfortunately misses some likes
 ### ✔ Script Export Imports
 - Import JSON backups exported by this script
 
@@ -154,61 +100,15 @@ You can populate the liked index using:
 
 ---
 
-## 📃 Playlist Scan
+## 📦 Backup Recommendation
 
-- Works on:
-  ```
-  https://www.youtube.com/playlist?list=LL
-  ```
-- Scroll to your desired point of videos in the playlist before activating scan
-- Optional scan limit (e.g. last 500 videos)
+Export occasionally:
 
----
-
-## 🧠 How It Works (Technical Overview)
-
-- Extracts video IDs from:
-  - Thumbnails
-  - Watch links
-  - Shorts
-- Stores IDs in a local `Set` via `GM_setValue`
-- Uses a `MutationObserver` for infinite scrolling
-- Dynamically resolves correct thumbnail containers
-- Avoids interfering with YouTube’s native UI
-
----
-
-## 🛠 Installation
-
-1. Install **Violentmonkey**
-2. Create a new userscript
-3. Paste the contents of:
 ```
-youtube-liked-manager.user.js
-```
-4. Save and open YouTube
-
----
-
-## 🔄 Development & Versioning
-
-Recommended workflow:
-
-```bash
-# after updating the script
-git add youtube-liked-manager.user.js
-git commit -m "v1.3.1 Short description"
-git push
+💞 Export → liked_videos.json
 ```
 
-Or faster:
-
-```bash
-git commit -am "v1.3.1 Short description"
-git push
-```
-
-Current version history is tracked via Git commits.
+This allows easy restore if browser storage is cleared.
 
 ---
 
@@ -222,19 +122,6 @@ Current version history is tracked via Git commits.
 
 ---
 
-## 📦 Backup Recommendation
-
-Export occasionally:
-
-```
-💞 Export → liked_videos.json
-```
-
-This allows easy restore if browser storage is cleared.
-
----
-
 ## 🧾 License
 
 Private / personal use. Modify freely for your own workflow.
-

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.0
+// @version      1.3.1
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -47,7 +47,7 @@
         if (el.querySelector('.yt-liked-indicator')) return;
 
         const id = getVideoIdFromElement(el);
-         if (!id || !likedIndex.has(id)) return; // 🔒 skip unliked videos
+         if (!id || !likedIndex.has(id)) return; // skip unliked videos
 
         const heart = document.createElement('div');
         heart.className = 'yt-liked-indicator';
@@ -132,7 +132,6 @@
     /******************************************************************
      * REMOVE HEARTS WHEN TOGGLE OFF
      ******************************************************************/
-
     function removeAllHearts() {
         document
             .querySelectorAll('.yt-liked-indicator')
@@ -249,9 +248,9 @@
     async function playlistScan() {
           // Only run on liked videos playlist
         if (!location.pathname.includes('/playlist') || !location.search.includes('list=LL')) {
-            return alert('Playlist scan only works on your Liked videos playlist. (www.youtube.com/playlist?list=LL)');
+            return alert('Playlist scan only works on your Liked videos playlist.\n (www.youtube.com/playlist?list=LL)');
         }
-        const n = prompt('Number of videos to scan from playlist? (Leave empty for all)');
+        const n = prompt('*currently does not autoscroll so scroll to your desired point in the playlist before activating scan*\n\nNumber of videos to scan from playlist?\n(Leave empty for all)');
         if (n === null) return;
         const vids = document.querySelectorAll('ytd-playlist-video-renderer');
         let count = 0;
