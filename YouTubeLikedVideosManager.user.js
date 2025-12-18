@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.3
+// @version      1.3.4
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -104,6 +104,19 @@
     return null;
   }
 
+  function syncHeart(el, id) {
+    const existing = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
+
+    // Should NOT have a heart
+    if (!showHearts || !likedIndex.has(id)) {
+      if (existing) existing.remove();
+      return;
+    }
+
+    // Should have a heart
+    if (!existing) addHeart(el);
+  }
+
   /******************************************************************
    * PROCESS VIDEOS
    ******************************************************************/
@@ -130,9 +143,11 @@
         const shelfItem = el.closest(".ytGridShelfViewModelGridShelfItem");
         if (shelfItem) shelfItem.style.removeProperty("display");
 
-        if (id && likedIndex.has(id)) {
-          if (showHearts) addHeart(el);
+        if (id) {
+          syncHeart(el, id);
+        }
 
+        if (id && likedIndex.has(id)) {
           if (hideLiked) {
             if (shelfItem) shelfItem.style.display = "none";
             else el.style.display = "none";
@@ -144,14 +159,7 @@
   }
 
   /******************************************************************
-   * REMOVE HEARTS WHEN TOGGLE OFF
-   ******************************************************************/
-  function removeAllHearts() {
-    document.querySelectorAll(".yt-liked-indicator").forEach((h) => h.remove());
-  }
-
-  /******************************************************************
-   * DANGER ZONE — CLEAR INDEX
+   * CLEAR INDEX
    ******************************************************************/
   function clearLikedIndexTripleConfirm() {
     const total = likedIndex.size;
@@ -191,10 +199,10 @@
       let id = null;
 
       if (typeof e === "string") {
-        id = e; // your exported ID array
+        id = e;
         type = "exported IDs";
       } else if (e.title?.startsWith("Liked ") && e.titleUrl) {
-        id = extractVideoId(e.titleUrl); // Takeout export
+        id = extractVideoId(e.titleUrl);
         type = "Takeout JSON";
       }
 
@@ -273,9 +281,11 @@
   async function playlistScan() {
     if (!location.pathname.includes("/playlist") || !location.search.includes("list=LL")) {
       return alert(
-        "Playlist scan only works on your Liked videos playlist.\n(www.youtube.com/playlist?list=LL)"
+        "Playlist scan only works on your Liked videos playlist:\nwww.youtube.com/playlist?list=LL"
       );
     }
+
+    const startUrl = location.href;
 
     const max = prompt(
       "Auto-scroll will load the playlist.\n\n" +
@@ -291,6 +301,10 @@
 
     // Auto-scroll loop
     while (true) {
+      if (location.href !== startUrl) {
+        alert("Playlist scan aborted — navigation detected.");
+        return;
+      }
       const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
 
       if (vids === lastCount) {
@@ -350,13 +364,13 @@
         `;
     // prettier-ignore
     const items = [
-        {icon:'❤️‍', label:'Show hearts', key:'showHearts',toggle: true, act:()=>{showHearts = !showHearts;persistToggle('showHearts',showHearts);if (!showHearts) removeAllHearts()}},
-        {icon:'🩵', label:'Hide liked videos', key:'hideLiked', toggle:true, act:()=>{hideLiked=!hideLiked; persistToggle('hideLiked',hideLiked)}},
-        {icon:'🩶', label:'Dim liked videos', key:'dimLiked', toggle:true, act:()=>{dimLiked=!dimLiked; persistToggle('dimLiked',dimLiked)}},
-        {icon:'💖', label:'Liked playlist scan', act:playlistScan},
-        {icon:'💗', label:'Import', act:openImport},
-        {icon:'💞', label:'Export', act:exportLikes},
-        {icon:'💔', label:'Clear liked index', act:clearLikedIndexTripleConfirm}
+      {icon:'❤️‍', label:'Show hearts', key:'showHearts',toggle: true, act:()=>{showHearts = !showHearts;persistToggle('showHearts',showHearts)}},
+      {icon:'🩵', label:'Hide liked videos', key:'hideLiked', toggle:true, act:()=>{hideLiked=!hideLiked; persistToggle('hideLiked',hideLiked)}},
+      {icon:'🩶', label:'Dim liked videos', key:'dimLiked', toggle:true, act:()=>{dimLiked=!dimLiked; persistToggle('dimLiked',dimLiked)}},
+      {icon:'💖', label:'Liked playlist scan', act:playlistScan},
+      {icon:'💗', label:'Import', act:openImport},
+      {icon:'💞', label:'Export', act:exportLikes},
+      {icon:'💔', label:'Clear liked index', act:clearLikedIndexTripleConfirm}
     ];
 
     const btns = [];
@@ -504,6 +518,5 @@
   }
 
   setupFullscreenToggle();
-
   processVideos();
 })();
