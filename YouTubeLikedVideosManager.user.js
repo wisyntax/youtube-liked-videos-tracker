@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.2
+// @version      1.3.3
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -81,26 +81,26 @@
   }
 
   function resolveOverlayHost(el) {
-    // 🟢 Shorts shelf (search / home)
+    // Shorts shelf (search / home)
     const shortsShelfThumb = el.querySelector('a[href^="/shorts"] yt-thumbnail-view-model');
     if (shortsShelfThumb) return shortsShelfThumb;
 
-    // 🟢 History page: anchor inside yt-thumbnail-view-model for perfect overlay
+    // History page: anchor inside yt-thumbnail-view-model for perfect overlay
     const historyThumb = el.querySelector("a.yt-lockup-view-model__content-image yt-thumbnail-view-model");
     if (historyThumb) return historyThumb;
 
-    // 🟢 Playlist page: anchor inside the inner <yt-image> for exact thumbnail
+    // Playlist page: anchor inside the inner <yt-image> for exact thumbnail
     const playlistThumb = el.querySelector("ytd-thumbnail a#thumbnail");
     if (playlistThumb) return playlistThumb;
 
-    // 🟢 Standard video renderers
+    // Standard video renderers
     const standardThumb =
       el.querySelector("a#thumbnail") ||
       el.querySelector("ytd-thumbnail") ||
       el.querySelector("yt-thumbnail-view-model");
     if (standardThumb) return standardThumb;
 
-    // 🟡 Absolute fallback
+    // Absolute fallback
     return null;
   }
 
@@ -271,21 +271,48 @@
    * PLAYLIST SCAN
    ******************************************************************/
   async function playlistScan() {
-    // Only run on liked videos playlist
     if (!location.pathname.includes("/playlist") || !location.search.includes("list=LL")) {
       return alert(
-        "Playlist scan only works on your Liked videos playlist.\n (www.youtube.com/playlist?list=LL)"
+        "Playlist scan only works on your Liked videos playlist.\n(www.youtube.com/playlist?list=LL)"
       );
     }
-    const n = prompt(
-      "**currently does not autoscroll so scroll to your desired point in the playlist before activating scan**\n\n*Optional*\nNumber of videos to scan from playlist?\n(Leave empty for all)"
+
+    const max = prompt(
+      "Auto-scroll will load the playlist.\n\n" +
+        "Optional: max videos to scan\n" +
+        "(Leave empty for ALL liked videos)"
     );
-    if (n === null) return;
-    const vids = document.querySelectorAll("ytd-playlist-video-renderer");
+    if (max === null) return;
+
+    const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    let lastCount = 0;
+    let stableRounds = 0;
+
+    // Auto-scroll loop
+    while (true) {
+      const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
+
+      if (vids === lastCount) {
+        stableRounds++;
+      } else {
+        stableRounds = 0;
+        lastCount = vids;
+      }
+
+      if (stableRounds >= 4) break;
+      if (max && vids >= Number(max)) break;
+
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await delay(700);
+    }
+
+    // Scan loaded videos
+    const els = document.querySelectorAll("ytd-playlist-video-renderer");
     let scanned = 0;
     let added = 0;
 
-    for (const el of vids) {
+    for (const el of els) {
       const id = getVideoIdFromElement(el);
       scanned++;
 
@@ -294,12 +321,13 @@
         added++;
       }
 
-      if (n && scanned >= Number(n)) break;
+      if (max && scanned >= Number(max)) break;
     }
 
     persistIndex();
-    alert(`Playlist scan complete — scanned ${scanned}, added ${added} new likes`);
     processVideos();
+
+    alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
   }
 
   /******************************************************************
