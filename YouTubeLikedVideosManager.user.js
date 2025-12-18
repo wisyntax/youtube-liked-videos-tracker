@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.4.1
+// @version      1.3.4.2
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -40,66 +40,57 @@
     return a ? extractVideoId(a.href) : null;
   }
 
-  /******************************************************************
-   * WATCH PAGE LIKE BUTTON SYNC
-   ******************************************************************/
-  function getLikeButtonVM() {
-    return document.evaluate(
-      "//segmented-like-dislike-button-view-model//button[@aria-pressed]",
-      document,
-      null,
-      XPathResult.FIRST_ORDERED_NODE_TYPE,
-      null
-    ).singleNodeValue;
-  }
+  /*****************************************************
+   * SHORTS LIKE OBSERVER (FIXED)
+   *****************************************************/
+  const shortsObserver = new MutationObserver(() => {
+    const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
+    if (!activeShort) return;
 
-  function watchLikeButton() {
-    let lastVideoId = null;
-    let lastState = null;
-    let btnObserver = null;
+    const likeBtn = activeShort.querySelector(
+      "reel-action-bar-view-model like-button-view-model toggle-button-view-model button-view-model label button[aria-pressed]"
+    );
 
-    function attach() {
-      const btn = getLikeButtonVM();
-      const id = extractVideoId(location.href);
-      if (!btn || !id) return false;
+    if (!likeBtn || likeBtn.dataset.processed === "true") return;
 
-      // Avoid re-attaching on same video
-      if (id === lastVideoId) return true;
+    const getCurrentVideoId = () => {
+      // Fallback to null if no ID is found to prevent adding "null" string to Set
+      return activeShort.getAttribute("video-id") || extractVideoId(window.location.href) || null;
+    };
 
-      lastVideoId = id;
-      lastState = btn.getAttribute("aria-pressed");
+    let videoId = getCurrentVideoId();
+    if (!videoId) return; // Exit if we can't find a valid ID
 
-      if (btnObserver) btnObserver.disconnect();
+    likeBtn.dataset.processed = "true";
 
-      btnObserver = new MutationObserver(() => {
-        const state = btn.getAttribute("aria-pressed");
-        if (state === lastState) return;
-        lastState = state;
-
-        if (state === "true") {
-          likedIndex.add(id);
-          console.log("[Like → Index] added", id);
-        } else {
-          likedIndex.delete(id);
-          console.log("[Like → Index] removed", id);
-        }
-
-        persistIndex();
-        processVideos();
-      });
-
-      btnObserver.observe(btn, {
-        attributes: true,
-        attributeFilter: ["aria-pressed"],
-      });
-
-      console.log("[Like observer attached]", id);
-      return true;
+    // Initial sync
+    const isInitiallyLiked = likeBtn.getAttribute("aria-pressed") === "true";
+    if (isInitiallyLiked) {
+      likedIndex.add(videoId);
+      persistIndex();
     }
 
-    // Retry loop (SPA-safe)
-    setInterval(attach, 500);
-  }
+    const btnObserver = new MutationObserver(() => {
+      const currentId = getCurrentVideoId();
+
+      // CRITICAL FIX: If currentId is null (user closed shorts), stop execution
+      if (!currentId) return;
+
+      const isLiked = likeBtn.getAttribute("aria-pressed") === "true";
+      if (isLiked) {
+        likedIndex.add(currentId);
+      } else {
+        likedIndex.delete(currentId);
+      }
+
+      persistIndex();
+      console.log(`[Shorts] ${isLiked ? "Liked" : "Unliked"}: ${currentId}`);
+    });
+
+    btnObserver.observe(likeBtn, { attributes: true, attributeFilter: ["aria-pressed"] });
+  });
+
+  shortsObserver.observe(document.body, { childList: true, subtree: true });
 
   /******************************************************************
    * HEART BADGE
@@ -579,6 +570,5 @@
   }
 
   setupFullscreenToggle();
-  watchLikeButton();
   processVideos();
 })();
