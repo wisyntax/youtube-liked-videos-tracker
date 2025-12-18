@@ -65,7 +65,7 @@ You can populate the liked index using:
   - tested on **45k+ likes**
   - get likes google takeout option misses
 
-1. Go to *Your likes and dislikes on YouTube videos* [My Activity page](https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes) and then scroll all the way to the end or open your browser console and run this script to do the same:
+1. Go to *Your likes and dislikes on YouTube videos* [My Activity page](https://myactivity.google.com/page?utm_source=my-activity&hl=en&page=youtube_likes) and then scroll all the way to the end or run this script in your browser console to autoscroll:
    - pressing esc will stop the script prematurely
     ```js
     window.stopScrolling=false;window.addEventListener("keydown",e=>e.key==="Escape"&&(window.stopScrolling=true));(async()=>{while(!document.querySelector("div.hV1B3e > div")&&!window.stopScrolling){window.scrollTo(0,document.documentElement.scrollHeight);await new Promise(r=>setTimeout(r,50))}console.log(window.stopScrolling?"Scrolling stopped via ESC ✔":"Reached the end ✔")})();
