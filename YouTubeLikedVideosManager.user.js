@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.4
+// @version      1.3.4.1
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -38,6 +38,67 @@
   function getVideoIdFromElement(el) {
     const a = el.querySelector('a[href*="/watch"], a[href*="/shorts"], a[href^="/shorts"]');
     return a ? extractVideoId(a.href) : null;
+  }
+
+  /******************************************************************
+   * WATCH PAGE LIKE BUTTON SYNC
+   ******************************************************************/
+  function getLikeButtonVM() {
+    return document.evaluate(
+      "//segmented-like-dislike-button-view-model//button[@aria-pressed]",
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    ).singleNodeValue;
+  }
+
+  function watchLikeButton() {
+    let lastVideoId = null;
+    let lastState = null;
+    let btnObserver = null;
+
+    function attach() {
+      const btn = getLikeButtonVM();
+      const id = extractVideoId(location.href);
+      if (!btn || !id) return false;
+
+      // Avoid re-attaching on same video
+      if (id === lastVideoId) return true;
+
+      lastVideoId = id;
+      lastState = btn.getAttribute("aria-pressed");
+
+      if (btnObserver) btnObserver.disconnect();
+
+      btnObserver = new MutationObserver(() => {
+        const state = btn.getAttribute("aria-pressed");
+        if (state === lastState) return;
+        lastState = state;
+
+        if (state === "true") {
+          likedIndex.add(id);
+          console.log("[Like → Index] added", id);
+        } else {
+          likedIndex.delete(id);
+          console.log("[Like → Index] removed", id);
+        }
+
+        persistIndex();
+        processVideos();
+      });
+
+      btnObserver.observe(btn, {
+        attributes: true,
+        attributeFilter: ["aria-pressed"],
+      });
+
+      console.log("[Like observer attached]", id);
+      return true;
+    }
+
+    // Retry loop (SPA-safe)
+    setInterval(attach, 500);
   }
 
   /******************************************************************
@@ -518,5 +579,6 @@
   }
 
   setupFullscreenToggle();
+  watchLikeButton();
   processVideos();
 })();
