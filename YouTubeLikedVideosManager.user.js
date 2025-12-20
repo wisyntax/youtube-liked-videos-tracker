@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.3.4.2
+// @version      1.4.0
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -40,57 +40,115 @@
     return a ? extractVideoId(a.href) : null;
   }
 
-  /*****************************************************
-   * SHORTS LIKE OBSERVER (FIXED)
-   *****************************************************/
-  const shortsObserver = new MutationObserver(() => {
-    const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
-    if (!activeShort) return;
+  /******************************************************************
+   * WATCH LIKE LISTENER
+   ******************************************************************/
+  document.addEventListener(
+    "click",
+    (event) => {
+      const btn = event.target.closest("segmented-like-dislike-button-view-model button[aria-pressed]");
+      if (!btn) return;
 
-    const likeBtn = activeShort.querySelector(
-      "reel-action-bar-view-model like-button-view-model toggle-button-view-model button-view-model label button[aria-pressed]"
-    );
+      const link = document.querySelector('link[rel="canonical"]');
+      if (!link) return;
 
-    if (!likeBtn || likeBtn.dataset.processed === "true") return;
+      const videoId = new URL(link.href).searchParams.get("v");
+      if (!videoId) return;
 
-    const getCurrentVideoId = () => {
-      // Fallback to null if no ID is found to prevent adding "null" string to Set
-      return activeShort.getAttribute("video-id") || extractVideoId(window.location.href) || null;
-    };
+      // Read AFTER YouTube toggles
+      setTimeout(() => {
+        const isLiked = btn.getAttribute("aria-pressed") === "true";
 
-    let videoId = getCurrentVideoId();
-    if (!videoId) return; // Exit if we can't find a valid ID
+        if (isLiked) {
+          likedIndex.add(videoId);
+          console.log("[Watch] Liked:", videoId);
+        } else {
+          likedIndex.delete(videoId);
+          console.log("[Watch] Unliked:", videoId);
+        }
 
-    likeBtn.dataset.processed = "true";
+        persistIndex();
+      }, 0); // add delay if live watch likes are not added to index
+    },
+    true
+  );
 
-    // Initial sync
-    const isInitiallyLiked = likeBtn.getAttribute("aria-pressed") === "true";
-    if (isInitiallyLiked) {
+  // check watch like on load and add if missing
+  function syncInitialWatchLike() {
+    const link = document.querySelector('link[rel="canonical"]');
+    if (!link) return;
+
+    const videoId = new URL(link.href).searchParams.get("v");
+    if (!videoId) return;
+
+    const btn = document.evaluate(
+      "//segmented-like-dislike-button-view-model//button[@aria-pressed]",
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    ).singleNodeValue;
+
+    if (!btn) return false;
+
+    const isLiked = btn.getAttribute("aria-pressed") === "true";
+    if (isLiked && !likedIndex.has(videoId)) {
       likedIndex.add(videoId);
       persistIndex();
+      console.log("[Watch] Initial liked sync:", videoId);
     }
 
-    const btnObserver = new MutationObserver(() => {
-      const currentId = getCurrentVideoId();
+    return true;
+  }
 
-      // CRITICAL FIX: If currentId is null (user closed shorts), stop execution
-      if (!currentId) return;
-
-      const isLiked = likeBtn.getAttribute("aria-pressed") === "true";
-      if (isLiked) {
-        likedIndex.add(currentId);
-      } else {
-        likedIndex.delete(currentId);
-      }
-
-      persistIndex();
-      console.log(`[Shorts] ${isLiked ? "Liked" : "Unliked"}: ${currentId}`);
-    });
-
-    btnObserver.observe(likeBtn, { attributes: true, attributeFilter: ["aria-pressed"] });
+  document.addEventListener("yt-navigate-finish", () => {
+    let tries = 0;
+    const t = setInterval(() => {
+      if (syncInitialWatchLike() || ++tries > 5) clearInterval(t);
+    }, 10); // recommended to keep this delay as is
   });
 
-  shortsObserver.observe(document.body, { childList: true, subtree: true });
+  /******************************************************************
+   * SHORTS LIKE LISTENER
+   ******************************************************************/
+  document.addEventListener(
+    "click",
+    (event) => {
+      const likeBtnHost = event.target.closest("like-button-view-model");
+      if (!likeBtnHost) return;
+
+      const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
+      if (!activeShort) return;
+
+      const videoId = activeShort
+        .querySelector('a[href*="/shorts/"]')
+        ?.href.split("/shorts/")
+        .pop()
+        .split("?")[0];
+      if (!videoId) return;
+
+      const btn = likeBtnHost.querySelector("button[aria-pressed]");
+      if (!btn) return;
+
+      setTimeout(() => {
+        const isLiked = btn.getAttribute("aria-pressed") === "true";
+
+        if (isLiked) {
+          if (!likedIndex.has(videoId)) {
+            likedIndex.add(videoId);
+            console.log(`[Shorts] Liked: ${videoId}`);
+          }
+        } else {
+          if (likedIndex.has(videoId)) {
+            likedIndex.delete(videoId);
+            console.log(`[Shorts] Unliked: ${videoId}`);
+          }
+        }
+        persistIndex();
+      }, 0); // add delay if live short likes are not added to index
+    },
+    true
+  );
 
   /******************************************************************
    * HEART BADGE
