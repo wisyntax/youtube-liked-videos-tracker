@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.4.0
+// @version      1.4.1
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @grant        GM_getValue
@@ -40,34 +40,54 @@
     return a ? extractVideoId(a.href) : null;
   }
 
+  // Index helper
+  function getLikedStatus(liked, ID, type) {
+    if (liked && !likedIndex.has(ID)) {
+      likedIndex.add(ID);
+      console.log(type, "Liked:", ID);
+      persistIndex();
+    }
+    if (!liked && likedIndex.has(ID)) {
+      likedIndex.delete(ID);
+      console.log(type, "Unliked:", ID);
+      persistIndex();
+    }
+  }
+
+  // Get current watch video ID
+  function getCurrentVideoId() {
+    const videoRenderer = document.querySelector("ytd-watch-flexy");
+    return videoRenderer?.videoId || null;
+  }
+
+  // Get current shorts video ID
+  function getCurrentShortId() {
+    const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
+    if (!activeShort) return null;
+
+    const a = activeShort.querySelector('a[href*="/shorts/"]');
+    if (!a) return null;
+
+    return a.href.split("/shorts/").pop().split("?")[0];
+  }
+
   /******************************************************************
    * WATCH LIKE LISTENER
    ******************************************************************/
+  // live click button update
   document.addEventListener(
     "click",
     (event) => {
       const btn = event.target.closest("segmented-like-dislike-button-view-model button[aria-pressed]");
       if (!btn) return;
 
-      const link = document.querySelector('link[rel="canonical"]');
-      if (!link) return;
-
-      const videoId = new URL(link.href).searchParams.get("v");
+      const videoId = getCurrentVideoId();
       if (!videoId) return;
 
       // Read AFTER YouTube toggles
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
-
-        if (isLiked) {
-          likedIndex.add(videoId);
-          console.log("[Watch] Liked:", videoId);
-        } else {
-          likedIndex.delete(videoId);
-          console.log("[Watch] Unliked:", videoId);
-        }
-
-        persistIndex();
+        getLikedStatus(isLiked, videoId, "[Watch]");
       }, 0); // add delay if live watch likes are not added to index
     },
     true
@@ -75,11 +95,8 @@
 
   // check watch like on load and add if missing
   function syncInitialWatchLike() {
-    const link = document.querySelector('link[rel="canonical"]');
-    if (!link) return;
-
-    const videoId = new URL(link.href).searchParams.get("v");
-    if (!videoId) return;
+    const videoId = getCurrentVideoId();
+    if (!videoId) return false;
 
     const btn = document.evaluate(
       "//segmented-like-dislike-button-view-model//button[@aria-pressed]",
@@ -95,12 +112,12 @@
     if (isLiked && !likedIndex.has(videoId)) {
       likedIndex.add(videoId);
       persistIndex();
-      console.log("[Watch] Initial liked sync:", videoId);
+      console.log("[Watch Init] Liked:", videoId);
     }
 
     return true;
   }
-
+ 
   document.addEventListener("yt-navigate-finish", () => {
     let tries = 0;
     const t = setInterval(() => {
@@ -117,14 +134,7 @@
       const likeBtnHost = event.target.closest("like-button-view-model");
       if (!likeBtnHost) return;
 
-      const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
-      if (!activeShort) return;
-
-      const videoId = activeShort
-        .querySelector('a[href*="/shorts/"]')
-        ?.href.split("/shorts/")
-        .pop()
-        .split("?")[0];
+      const videoId = getCurrentShortId();
       if (!videoId) return;
 
       const btn = likeBtnHost.querySelector("button[aria-pressed]");
@@ -132,19 +142,7 @@
 
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
-
-        if (isLiked) {
-          if (!likedIndex.has(videoId)) {
-            likedIndex.add(videoId);
-            console.log(`[Shorts] Liked: ${videoId}`);
-          }
-        } else {
-          if (likedIndex.has(videoId)) {
-            likedIndex.delete(videoId);
-            console.log(`[Shorts] Unliked: ${videoId}`);
-          }
-        }
-        persistIndex();
+        getLikedStatus(isLiked, videoId, "[Shorts]");
       }, 0); // add delay if live short likes are not added to index
     },
     true
