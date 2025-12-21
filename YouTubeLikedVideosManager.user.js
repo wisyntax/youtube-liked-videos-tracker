@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.4.1
+// @version      1.4.2
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
+// @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
 // @grant        GM_getValue
 // @grant        GM_setValue
 // ==/UserScript==
@@ -12,15 +13,32 @@
   "use strict";
 
   /******************************************************************
-   * STORAGE
+   * STORAGE & SYNC
    ******************************************************************/
-  const likedIndex = new Set(GM_getValue("likedIndex", []));
+  let likedIndex = new Set(GM_getValue("likedIndex", []));
   let hideLiked = GM_getValue("hideLiked", false);
   let dimLiked = GM_getValue("dimLiked", false);
   let showHearts = GM_getValue("showHearts", true);
 
-  const persistIndex = () => GM_setValue("likedIndex", [...likedIndex]);
+  const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
   const persistToggle = (k, v) => GM_setValue(k, v);
+
+  // Sync across tabs using value change listener
+  if (typeof GM_addValueChangeListener === "function") {
+    GM_addValueChangeListener("likedIndex", (name, oldValue, newValue, remote) => {
+      if (remote) {
+        likedIndex.clear();
+        (newValue || []).forEach((v) => likedIndex.add(v));
+        console.log("[Sync] likedIndex updated from another tab");
+        processVideos(); // update hearts/dim/hide immediately
+      }
+    });
+  }
+
+  // Helper to get fresh copy before any write
+  function getLatestLikedIndex() {
+    return new Set(GM_getValue("likedIndex", []));
+  }
 
   /******************************************************************
    * VIDEO ID EXTRACTION
@@ -42,16 +60,18 @@
 
   // Index helper
   function getLikedStatus(liked, ID, type) {
-    if (liked && !likedIndex.has(ID)) {
-      likedIndex.add(ID);
+    const index = getLatestLikedIndex();
+
+    if (liked && !index.has(ID)) {
+      index.add(ID);
       console.log(type, "Liked:", ID);
-      persistIndex();
-    }
-    if (!liked && likedIndex.has(ID)) {
-      likedIndex.delete(ID);
+    } else if (!liked && index.has(ID)) {
+      index.delete(ID);
       console.log(type, "Unliked:", ID);
-      persistIndex();
     }
+
+    likedIndex = index; // update in-memory copy
+    persistIndex(index); // persist safely to storage
   }
 
   // Get current watch video ID
@@ -88,7 +108,7 @@
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
         getLikedStatus(isLiked, videoId, "[Watch]");
-      }, 0); // add delay if live watch likes are not added to index
+      }, 0); // add small delay if live watch likes are not added to index
     },
     true
   );
@@ -105,25 +125,49 @@
       XPathResult.FIRST_ORDERED_NODE_TYPE,
       null
     ).singleNodeValue;
-
     if (!btn) return false;
 
     const isLiked = btn.getAttribute("aria-pressed") === "true";
-    if (isLiked && !likedIndex.has(videoId)) {
-      likedIndex.add(videoId);
-      persistIndex();
+    if (!isLiked) return true;
+
+    const index = getLatestLikedIndex();
+    if (!index.has(videoId)) {
+      index.add(videoId);
+      likedIndex = index; // update in-memory
+      persistIndex(index);
       console.log("[Watch Init] Liked:", videoId);
     }
 
     return true;
   }
- 
+
   document.addEventListener("yt-navigate-finish", () => {
     let tries = 0;
     const t = setInterval(() => {
       if (syncInitialWatchLike() || ++tries > 5) clearInterval(t);
     }, 10); // recommended to keep this delay as is
   });
+
+  /******************************************************************
+   * FULLSCREEN WATCH LIKE LISTENER
+   ******************************************************************/
+  document.addEventListener(
+    "click",
+    (event) => {
+      const btn = event.target.closest(".ytp-fullscreen-quick-actions button[aria-pressed]");
+      if (!btn) return;
+
+      const videoId = getCurrentVideoId();
+      if (!videoId) return;
+
+      // Read AFTER YouTube toggles
+      setTimeout(() => {
+        const isLiked = btn.getAttribute("aria-pressed") === "true";
+        getLikedStatus(isLiked, videoId, "[Watch Fullscreen]");
+      }, 0); // add small delay if live fullscreen watch likes are not added to index
+    },
+    true
+  );
 
   /******************************************************************
    * SHORTS LIKE LISTENER
@@ -143,7 +187,7 @@
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
         getLikedStatus(isLiked, videoId, "[Shorts]");
-      }, 0); // add delay if live short likes are not added to index
+      }, 0); // add small delay if live short likes are not added to index
     },
     true
   );
@@ -453,7 +497,7 @@
   }
 
   /******************************************************************
-   * CASCADE MENU
+   * HEART MENU
    ******************************************************************/
   function createMenu() {
     if (document.getElementById("yt-liked-menu")) return;
