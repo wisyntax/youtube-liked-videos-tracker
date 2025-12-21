@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.4.2
+// @version      1.5.0
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addValueChangeListener
 // ==/UserScript==
 
 (() => {
@@ -30,12 +31,12 @@
         likedIndex.clear();
         (newValue || []).forEach((v) => likedIndex.add(v));
         console.log("[Sync] likedIndex updated from another tab");
-        processVideos(); // update hearts/dim/hide immediately
+        processVideos();
       }
     });
   }
 
-  // Helper to get fresh copy before any write
+  // Helper to get fresh copy immediately
   function getLatestLikedIndex() {
     return new Set(GM_getValue("likedIndex", []));
   }
@@ -59,19 +60,16 @@
   }
 
   // Index helper
-  function getLikedStatus(liked, ID, type) {
-    const index = getLatestLikedIndex();
-
-    if (liked && !index.has(ID)) {
-      index.add(ID);
+  function getLikedStatus(isliked, ID, type) {
+    if (isliked && !likedIndex.has(ID)) {
+      likedIndex.add(ID);
       console.log(type, "Liked:", ID);
-    } else if (!liked && index.has(ID)) {
-      index.delete(ID);
+      persistIndex(likedIndex);
+    } else if (!isliked && likedIndex.has(ID)) {
+      likedIndex.delete(ID);
       console.log(type, "Unliked:", ID);
+      persistIndex(likedIndex);
     }
-
-    likedIndex = index; // update in-memory copy
-    persistIndex(index); // persist safely to storage
   }
 
   // Get current watch video ID
@@ -104,7 +102,6 @@
       const videoId = getCurrentVideoId();
       if (!videoId) return;
 
-      // Read AFTER YouTube toggles
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
         getLikedStatus(isLiked, videoId, "[Watch]");
@@ -130,11 +127,9 @@
     const isLiked = btn.getAttribute("aria-pressed") === "true";
     if (!isLiked) return true;
 
-    const index = getLatestLikedIndex();
-    if (!index.has(videoId)) {
-      index.add(videoId);
-      likedIndex = index; // update in-memory
-      persistIndex(index);
+    if (!likedIndex.has(videoId)) {
+      likedIndex.add(videoId);
+      persistIndex(likedIndex);
       console.log("[Watch Init] Liked:", videoId);
     }
 
@@ -160,7 +155,6 @@
       const videoId = getCurrentVideoId();
       if (!videoId) return;
 
-      // Read AFTER YouTube toggles
       setTimeout(() => {
         const isLiked = btn.getAttribute("aria-pressed") === "true";
         getLikedStatus(isLiked, videoId, "[Watch Fullscreen]");
@@ -259,13 +253,13 @@
   function syncHeart(el, id) {
     const existing = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
 
-    // Should NOT have a heart
+    // should NOT have a heart
     if (!showHearts || !likedIndex.has(id)) {
       if (existing) existing.remove();
       return;
     }
 
-    // Should have a heart
+    // should have a heart
     if (!existing) addHeart(el);
   }
 
@@ -276,13 +270,13 @@
     document
       .querySelectorAll(
         `
-            ytd-rich-item-renderer,
-            ytd-video-renderer,
-            ytd-grid-video-renderer,
-            ytd-playlist-video-renderer,
-            yt-lockup-view-model,
-            ytm-shorts-lockup-view-model,
-            ytm-shorts-lockup-view-model-v2
+          ytd-rich-item-renderer,
+          ytd-video-renderer,
+          ytd-grid-video-renderer,
+          ytd-playlist-video-renderer,
+          yt-lockup-view-model,
+          ytm-shorts-lockup-view-model,
+          ytm-shorts-lockup-view-model-v2
         `
       )
       .forEach((el) => {
@@ -313,7 +307,7 @@
   /******************************************************************
    * CLEAR INDEX
    ******************************************************************/
-  function clearLikedIndexTripleConfirm() {
+  function clearLikedIndexDoubleConfirm() {
     const total = likedIndex.size;
 
     if (!confirm(`⚠️ This will permanently DELETE ${total.toLocaleString()} liked videos.\n\nContinue?`))
@@ -322,11 +316,8 @@
     const typed = prompt("Type CLEAR (all caps) to confirm:");
     if (typed !== "CLEAR") return alert("Aborted.");
 
-    const final = prompt(`FINAL STEP: Type ${total} to confirm:`);
-    if (String(final) !== String(total)) return alert("Aborted.");
-
     likedIndex.clear();
-    GM_setValue("likedIndex", []);
+    persistIndex(likedIndex);
 
     alert("✅ Liked index cleared.");
     processVideos();
@@ -335,6 +326,7 @@
   /******************************************************************
    * IMPORT / EXPORT
    ******************************************************************/
+  // takeout and script import
   async function importTakeoutJson(file) {
     if (!file) return;
     let data;
@@ -344,6 +336,7 @@
       return alert("Invalid JSON");
     }
 
+    const index = getLatestLikedIndex();
     let added = 0;
     let type = "unknown";
 
@@ -358,17 +351,19 @@
         type = "Takeout JSON";
       }
 
-      if (id && !likedIndex.has(id)) {
-        likedIndex.add(id);
+      if (id && !index.has(id)) {
+        index.add(id);
         added++;
       }
     }
 
-    persistIndex();
-    alert(`Imported ${added} liked videos (${type})`);
+    likedIndex = index;
+    persistIndex(index);
     processVideos();
+    alert(`Imported ${added} liked videos (${type})`);
   }
 
+  // CSV import
   async function importCsvLikes(file) {
     const lines = (await file.text()).split(/\r?\n/);
     const headers = parseCsvLine(lines[0]);
@@ -376,20 +371,24 @@
     const l = headers.indexOf("video_link");
     if (a === -1 || l === -1) return alert("Invalid CSV");
 
+    const index = getLatestLikedIndex();
     let added = 0;
+
     for (let i = 1; i < lines.length; i++) {
       const r = parseCsvLine(lines[i]);
       if (r?.[a] === "liked") {
         const id = extractVideoId(r[l]);
-        if (id && !likedIndex.has(id)) {
-          likedIndex.add(id);
+        if (id && !index.has(id)) {
+          index.add(id);
           added++;
         }
       }
     }
-    persistIndex();
-    alert(`Imported ${added} liked videos`);
+
+    likedIndex = index;
+    persistIndex(index);
     processVideos();
+    alert(`Imported ${added} liked videos`);
   }
 
   const parseCsvLine = (l) => {
@@ -419,8 +418,9 @@
     return o.map((v) => v.trim());
   };
 
+  // export index
   function exportLikes() {
-    const b = new Blob([JSON.stringify([...likedIndex], null, 2)], { type: "application/json" });
+    const b = new Blob([JSON.stringify([...getLatestLikedIndex()], null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
     a.download = "liked_videos.json";
@@ -466,34 +466,37 @@
         lastCount = vids;
       }
 
-      if (stableRounds >= 4) break;
-      if (max && vids >= Number(max)) break;
+      if (stableRounds >= 6) break; // end loop if number of videos don't change for x loops
+      if (max && vids >= Number(max)) break; // end loop if user entered num and if vids greater than usernum
 
       window.scrollTo(0, document.documentElement.scrollHeight);
-      await delay(700);
+      await delay(800); // loop delay: lower delay scrolls faster but also ends faster
     }
 
     // Scan loaded videos
     const els = document.querySelectorAll("ytd-playlist-video-renderer");
     let scanned = 0;
     let added = 0;
+    const index = getLatestLikedIndex(); // fresh copy from storage
 
     for (const el of els) {
       const id = getVideoIdFromElement(el);
       scanned++;
 
-      if (id && !likedIndex.has(id)) {
-        likedIndex.add(id);
+      if (id && !index.has(id)) {
+        index.add(id);
         added++;
       }
 
       if (max && scanned >= Number(max)) break;
     }
 
-    persistIndex();
-    processVideos();
-
-    alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
+    likedIndex = index;
+    persistIndex(index);
+    setTimeout(() => {
+      processVideos();
+      alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
+    }, 0);
   }
 
   /******************************************************************
@@ -522,7 +525,7 @@
       {icon:'💖', label:'Liked playlist scan', act:playlistScan},
       {icon:'💗', label:'Import', act:openImport},
       {icon:'💞', label:'Export', act:exportLikes},
-      {icon:'💔', label:'Clear liked index', act:clearLikedIndexTripleConfirm}
+      {icon:'💔', label:'Clear liked index', act:clearLikedIndexDoubleConfirm}
     ];
 
     const btns = [];
@@ -629,7 +632,6 @@
 
   obs.observe(document.body, { childList: true, subtree: true });
 
-  createMenu();
   // Hide button when video full screen
   function setupFullscreenToggle() {
     const menu = document.getElementById("yt-liked-menu");
@@ -643,10 +645,10 @@
       if (isFull === lastState) return;
       lastState = isFull;
 
-      // Hide or show entire menu
+      // hide or show entire menu
       menu.style.display = isFull ? "none" : "flex";
 
-      // Close submenu buttons when entering fullscreen
+      // close submenu buttons when entering fullscreen
       if (isFull) {
         menu.querySelectorAll("button").forEach((b, i) => {
           if (i !== menu.children.length - 1) b.style.display = "none";
@@ -657,7 +659,7 @@
     // Fullscreen API (reliable)
     document.addEventListener("fullscreenchange", check);
 
-    // YouTube class changes
+    // youtube class changes
     const obs = new MutationObserver(check);
     obs.observe(document.body, {
       attributes: true,
@@ -665,10 +667,11 @@
       attributeFilter: ["class"],
     });
 
-    // Initial state
+    // initial state
     check();
   }
 
+  createMenu();
   setupFullscreenToggle();
   processVideos();
 })();
