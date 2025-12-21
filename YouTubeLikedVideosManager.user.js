@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.0
+// @version      1.5.1
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -59,19 +59,6 @@
     return a ? extractVideoId(a.href) : null;
   }
 
-  // Index helper
-  function getLikedStatus(isliked, ID, type) {
-    if (isliked && !likedIndex.has(ID)) {
-      likedIndex.add(ID);
-      console.log(type, "Liked:", ID);
-      persistIndex(likedIndex);
-    } else if (!isliked && likedIndex.has(ID)) {
-      likedIndex.delete(ID);
-      console.log(type, "Unliked:", ID);
-      persistIndex(likedIndex);
-    }
-  }
-
   // Get current watch video ID
   function getCurrentVideoId() {
     const videoRenderer = document.querySelector("ytd-watch-flexy");
@@ -90,101 +77,58 @@
   }
 
   /******************************************************************
-   * WATCH LIKE LISTENER
+   * LIKES HANDLER
    ******************************************************************/
-  // live click button update
-  document.addEventListener(
-    "click",
-    (event) => {
-      const btn = event.target.closest("segmented-like-dislike-button-view-model button[aria-pressed]");
-      if (!btn) return;
+  function updateLiked(ID, isLiked, type) {
+    if (!ID) return;
+    const had = likedIndex.has(ID);
+    if (isLiked && !had) likedIndex.add(ID);
+    else if (!isLiked && had) likedIndex.delete(ID);
+    else return;
 
-      const videoId = getCurrentVideoId();
-      if (!videoId) return;
-
-      setTimeout(() => {
-        const isLiked = btn.getAttribute("aria-pressed") === "true";
-        getLikedStatus(isLiked, videoId, "[Watch]");
-      }, 0); // add small delay if live watch likes are not added to index
-    },
-    true
-  );
-
-  // check watch like on load and add if missing
-  function syncInitialWatchLike() {
-    const videoId = getCurrentVideoId();
-    if (!videoId) return false;
-
-    const btn = document.evaluate(
-      "//segmented-like-dislike-button-view-model//button[@aria-pressed]",
-      document,
-      null,
-      XPathResult.FIRST_ORDERED_NODE_TYPE,
-      null
-    ).singleNodeValue;
-    if (!btn) return false;
-
-    const isLiked = btn.getAttribute("aria-pressed") === "true";
-    if (!isLiked) return true;
-
-    if (!likedIndex.has(videoId)) {
-      likedIndex.add(videoId);
-      persistIndex(likedIndex);
-      console.log("[Watch Init] Liked:", videoId);
-    }
-
-    return true;
+    console.log(type, isLiked ? "Liked:" : "Unliked:", ID);
+    persistIndex(likedIndex);
   }
 
+  // Generic listener factory
+  function listenLikes(selector, getIdFn, type) {
+    document.addEventListener(
+      "click",
+      (e) => {
+        const btnHost = e.target.closest(selector);
+        if (!btnHost) return;
+
+        const ID = getIdFn();
+        if (!ID) return;
+
+        const btn = btnHost.querySelector("button[aria-pressed]");
+        if (!btn) return;
+
+        setTimeout(() => {
+          const liked = btn.getAttribute("aria-pressed") === "true";
+          updateLiked(ID, liked, type);
+        }, 0);
+      },
+      true
+    );
+  }
+
+  // Watch / fullscreen / shorts
+  listenLikes("segmented-like-dislike-button-view-model", getCurrentVideoId, "[Watch]");
+  listenLikes(".ytp-fullscreen-quick-actions", getCurrentVideoId, "[Watch Fullscreen]");
+  listenLikes("like-button-view-model", getCurrentShortId, "[Shorts]");
+
+  // SPA navigation: sync initial watch video like
   document.addEventListener("yt-navigate-finish", () => {
-    let tries = 0;
-    const t = setInterval(() => {
-      if (syncInitialWatchLike() || ++tries > 5) clearInterval(t);
-    }, 10); // recommended to keep this delay as is
+    setTimeout(() => {
+    const videoId = getCurrentVideoId();
+    if (!videoId) return;
+    const btn = document.querySelector("segmented-like-dislike-button-view-model button[aria-pressed]");
+    if (!btn) return;
+      const isLiked = btn.getAttribute("aria-pressed") === "true";
+      updateLiked(videoId, isLiked, "[Watch SPA]");
+    }, 0);
   });
-
-  /******************************************************************
-   * FULLSCREEN WATCH LIKE LISTENER
-   ******************************************************************/
-  document.addEventListener(
-    "click",
-    (event) => {
-      const btn = event.target.closest(".ytp-fullscreen-quick-actions button[aria-pressed]");
-      if (!btn) return;
-
-      const videoId = getCurrentVideoId();
-      if (!videoId) return;
-
-      setTimeout(() => {
-        const isLiked = btn.getAttribute("aria-pressed") === "true";
-        getLikedStatus(isLiked, videoId, "[Watch Fullscreen]");
-      }, 0); // add small delay if live fullscreen watch likes are not added to index
-    },
-    true
-  );
-
-  /******************************************************************
-   * SHORTS LIKE LISTENER
-   ******************************************************************/
-  document.addEventListener(
-    "click",
-    (event) => {
-      const likeBtnHost = event.target.closest("like-button-view-model");
-      if (!likeBtnHost) return;
-
-      const videoId = getCurrentShortId();
-      if (!videoId) return;
-
-      const btn = likeBtnHost.querySelector("button[aria-pressed]");
-      if (!btn) return;
-
-      setTimeout(() => {
-        const isLiked = btn.getAttribute("aria-pressed") === "true";
-        getLikedStatus(isLiked, videoId, "[Shorts]");
-      }, 0); // add small delay if live short likes are not added to index
-    },
-    true
-  );
 
   /******************************************************************
    * HEART BADGE
@@ -264,45 +208,64 @@
   }
 
   /******************************************************************
-   * PROCESS VIDEOS
+   * PROCESS VIDEOS (optimized & toggle-safe)
    ******************************************************************/
+  function processVideo(el) {
+    if (el._ytLikedProcessed) return; // only skip nodes already processed by observer
+    el._ytLikedProcessed = true;
+
+    applyVideoStyles(el);
+  }
+
+  function applyVideoStyles(el) {
+    const id = getVideoIdFromElement(el);
+    if (!id) return;
+
+    // Reset display & opacity
+    el.style.display = "";
+    el.style.opacity = "";
+    const shelf = el.closest(".ytGridShelfViewModelGridShelfItem");
+    if (shelf) shelf.style.display = "";
+
+    // Heart
+    syncHeart(el, id);
+
+    // Hide / dim liked
+    if (likedIndex.has(id)) {
+      if (hideLiked) (shelf || el).style.display = "none";
+      else if (dimLiked) el.style.opacity = "0.55";
+    }
+  }
+
+  // Process all elements, re-apply toggles
   function processVideos() {
     document
       .querySelectorAll(
-        `
-          ytd-rich-item-renderer,
-          ytd-video-renderer,
-          ytd-grid-video-renderer,
-          ytd-playlist-video-renderer,
-          yt-lockup-view-model,
-          ytm-shorts-lockup-view-model,
-          ytm-shorts-lockup-view-model-v2
-        `
+        "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
       )
-      .forEach((el) => {
-        const id = getVideoIdFromElement(el);
-
-        // Reset display & opacity
-        el.style.removeProperty("display");
-        el.style.removeProperty("opacity");
-        // Reset outer shelf
-        const shelfItem = el.closest(".ytGridShelfViewModelGridShelfItem");
-        if (shelfItem) shelfItem.style.removeProperty("display");
-
-        if (id) {
-          syncHeart(el, id);
-        }
-
-        if (id && likedIndex.has(id)) {
-          if (hideLiked) {
-            if (shelfItem) shelfItem.style.display = "none";
-            else el.style.display = "none";
-          } else if (dimLiked) {
-            el.style.opacity = "0.55";
-          }
-        }
-      });
+      .forEach(applyVideoStyles);
   }
+
+  // MutationObserver for newly added nodes
+  const observer = new MutationObserver((muts) => {
+    muts.forEach((m) => {
+      m.addedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (
+          n.matches?.(
+            "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
+          )
+        )
+          processVideo(n);
+        else
+          n.querySelectorAll?.(
+            "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
+          ).forEach(processVideo);
+      });
+    });
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 
   /******************************************************************
    * CLEAR INDEX
@@ -622,15 +585,8 @@
   }
 
   /******************************************************************
-   * OBSERVER
+   * Fullscreen menu toggle
    ******************************************************************/
-  const obs = new MutationObserver((muts) => {
-    if (!muts.some((m) => m.addedNodes.length)) return;
-    clearTimeout(obs.t);
-    obs.t = setTimeout(processVideos, 250);
-  });
-
-  obs.observe(document.body, { childList: true, subtree: true });
 
   // Hide button when video full screen
   function setupFullscreenToggle() {
