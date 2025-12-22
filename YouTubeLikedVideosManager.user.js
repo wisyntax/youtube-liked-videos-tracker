@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.2
+// @version      1.5.3
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -133,49 +133,57 @@
    * HEART BADGE
    ******************************************************************/
   const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
+  const heartMap = new WeakMap(); // maps video element -> heart div
+  const hostMap = new WeakMap(); // maps video element -> overlay host
+
   const style = document.createElement("style");
   style.textContent = `
-  .yt-liked-heart-hidden {
-    display: none !important;
-  }
-   `;
+  .yt-liked-heart-hidden { display: none !important; }
+`;
   document.head.appendChild(style);
 
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id || !likedIndex.has(id)) return; // skip unliked videos
-    if (el.querySelector(`.yt-liked-indicator[data-id="${id}"]`)) return;
+    if (heartMap.has(el)) return; // already has heart
+
+    // resolve host only once
+    let host = hostMap.get(el);
+    if (!host) {
+      host = resolveOverlayHost(el);
+      if (!host) return;
+      hostMap.set(el, host);
+
+      if (getComputedStyle(host).position === "static") {
+        host.style.position = "relative";
+      }
+    }
 
     const heart = document.createElement("div");
     heart.className = "yt-liked-indicator";
     heart.dataset.id = id;
     heart.textContent = "🤍";
-    heart.style.cssText = `
-            position:absolute;
-            top:8px;
-            right:8px;
-            background:#ff0000;
-            color:white;
-            width:22px;
-            height:22px;
-            border-radius:50%;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            font-size:10px;
-            z-index:20;
-            pointer-events:none;
-            box-shadow:0 2px 8px rgba(0,0,0,.4);
-        `;
 
-    const host = resolveOverlayHost(el);
-    if (!host) return;
-
-    if (getComputedStyle(host).position === "static") {
-      host.style.position = "relative";
-    }
+    Object.assign(heart.style, {
+      position: "absolute",
+      top: "8px",
+      right: "8px",
+      background: "#ff0000",
+      color: "white",
+      width: "22px",
+      height: "22px",
+      borderRadius: "50%",
+      display: showHearts ? "flex" : "none",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: "10px",
+      zIndex: "20",
+      pointerEvents: "none",
+      boxShadow: "0 2px 8px rgba(0,0,0,.4)",
+    });
 
     host.appendChild(heart);
+    heartMap.set(el, heart);
   }
 
   function resolveOverlayHost(el) {
@@ -202,23 +210,29 @@
     return null;
   }
 
-  function syncHeart(el, id) {
-    let heart = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
+  function syncHeart(el) {
+    const id = getVideoIdFromElement(el);
+    if (!id) return;
 
-    // If video is NOT liked, remove heart entirely (this case is rare)
+    let heart = heartMap.get(el);
+
+    // if video is NOT liked, remove heart
     if (!likedIndex.has(id)) {
-      if (heart) heart.remove();
+      if (heart) {
+        heart.remove();
+        heartMap.delete(el);
+      }
       return;
     }
 
-    // Ensure heart exists
+    // ensure heart exists
     if (!heart) {
       addHeart(el);
-      heart = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
+      heart = heartMap.get(el);
       if (!heart) return;
     }
 
-    // Toggle visibility only
+    // toggle visibility only
     heart.classList.toggle(HEART_HIDDEN_CLASS, !showHearts);
   }
 
@@ -239,7 +253,6 @@
   function applyVideoStyles(el) {
     const id = getVideoIdFromElement(el);
     if (!id) return;
-
     // Reset display & opacity
     el.style.display = "";
     el.style.opacity = "";
@@ -247,7 +260,7 @@
     if (shelf) shelf.style.display = "";
 
     // Heart
-    syncHeart(el, id);
+    syncHeart(el);
 
     // Hide / dim liked
     if (likedIndex.has(id)) {
