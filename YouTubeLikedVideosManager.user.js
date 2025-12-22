@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.1
+// @version      1.5.2
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -20,7 +20,6 @@
   let hideLiked = GM_getValue("hideLiked", false);
   let dimLiked = GM_getValue("dimLiked", false);
   let showHearts = GM_getValue("showHearts", true);
-
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
   const persistToggle = (k, v) => GM_setValue(k, v);
 
@@ -121,10 +120,10 @@
   // SPA navigation: sync initial watch video like
   document.addEventListener("yt-navigate-finish", () => {
     setTimeout(() => {
-    const videoId = getCurrentVideoId();
-    if (!videoId) return;
-    const btn = document.querySelector("segmented-like-dislike-button-view-model button[aria-pressed]");
-    if (!btn) return;
+      const videoId = getCurrentVideoId();
+      if (!videoId) return;
+      const btn = document.querySelector("segmented-like-dislike-button-view-model button[aria-pressed]");
+      if (!btn) return;
       const isLiked = btn.getAttribute("aria-pressed") === "true";
       updateLiked(videoId, isLiked, "[Watch SPA]");
     }, 0);
@@ -133,6 +132,15 @@
   /******************************************************************
    * HEART BADGE
    ******************************************************************/
+  const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
+  const style = document.createElement("style");
+  style.textContent = `
+  .yt-liked-heart-hidden {
+    display: none !important;
+  }
+   `;
+  document.head.appendChild(style);
+
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id || !likedIndex.has(id)) return; // skip unliked videos
@@ -195,25 +203,36 @@
   }
 
   function syncHeart(el, id) {
-    const existing = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
+    let heart = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
 
-    // should NOT have a heart
-    if (!showHearts || !likedIndex.has(id)) {
-      if (existing) existing.remove();
+    // If video is NOT liked, remove heart entirely (this case is rare)
+    if (!likedIndex.has(id)) {
+      if (heart) heart.remove();
       return;
     }
 
-    // should have a heart
-    if (!existing) addHeart(el);
+    // Ensure heart exists
+    if (!heart) {
+      addHeart(el);
+      heart = el.querySelector(`.yt-liked-indicator[data-id="${id}"]`);
+      if (!heart) return;
+    }
+
+    // Toggle visibility only
+    heart.classList.toggle(HEART_HIDDEN_CLASS, !showHearts);
   }
 
   /******************************************************************
    * PROCESS VIDEOS (optimized & toggle-safe)
    ******************************************************************/
   function processVideo(el) {
-    if (el._ytLikedProcessed) return; // only skip nodes already processed by observer
-    el._ytLikedProcessed = true;
+    if (el._ytLikedProcessed) {
+      console.log("[Observer] Skipped already processed:", el);
+      return;
+    } // only skip nodes already processed by observer
 
+    el._ytLikedProcessed = true;
+    console.log("[Observer] Processing NEW video:", el);
     applyVideoStyles(el);
   }
 
@@ -237,32 +256,52 @@
     }
   }
 
+  // add "ytm-shorts-lockup-view-model" to selectors if youtube changes short shelf
+  const VIDEO_SELECTOR =
+    "ytd-rich-item-renderer," +
+    "ytd-video-renderer," +
+    "ytd-grid-video-renderer," +
+    "ytd-playlist-video-renderer," +
+    "yt-lockup-view-model," +
+    "ytm-shorts-lockup-view-model-v2";
+
   // Process all elements, re-apply toggles
   function processVideos() {
-    document
-      .querySelectorAll(
-        "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
-      )
-      .forEach(applyVideoStyles);
+    document.querySelectorAll(VIDEO_SELECTOR).forEach(applyVideoStyles);
   }
 
   // MutationObserver for newly added nodes
+  const pendingVideos = new Set();
+  let observerScheduled = false;
+
+  function flushPendingVideos() {
+    observerScheduled = false;
+
+    const count = pendingVideos.size; //remove later
+    if (count === 0) return; //remove later
+
+    console.log(`[Observer] Flushing ${count} new video node(s)`); //remove later
+
+    pendingVideos.forEach((el) => processVideo(el));
+    pendingVideos.clear();
+  }
   const observer = new MutationObserver((muts) => {
     muts.forEach((m) => {
       m.addedNodes.forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
-        if (
-          n.matches?.(
-            "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
-          )
-        )
-          processVideo(n);
-        else
-          n.querySelectorAll?.(
-            "ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2"
-          ).forEach(processVideo);
+
+        if (n.matches?.(VIDEO_SELECTOR)) {
+          pendingVideos.add(n);
+        } else {
+          n.querySelectorAll?.(VIDEO_SELECTOR).forEach((el) => pendingVideos.add(el));
+        }
       });
     });
+
+    if (!observerScheduled) {
+      observerScheduled = true;
+      setTimeout(flushPendingVideos, 0);
+    }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
