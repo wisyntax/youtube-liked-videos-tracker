@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.4
+// @version      1.5.5
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -14,7 +14,7 @@
   "use strict";
 
   /******************************************************************
-   * STORAGE & SYNC
+  // #region STORAGE & SYNC
    ******************************************************************/
   let likedIndex = new Set(GM_getValue("likedIndex", []));
   let hideLiked = GM_getValue("hideLiked", false);
@@ -41,7 +41,7 @@
   }
 
   /******************************************************************
-   * VIDEO ID EXTRACTION
+  // #region VIDEO ID EXTRACTION
    ******************************************************************/
   function extractVideoId(url) {
     if (typeof url !== "string") return null;
@@ -76,7 +76,7 @@
   }
 
   /******************************************************************
-   * LIKES HANDLER
+  // #region LIKES HANDLER
    ******************************************************************/
   function updateLiked(ID, isLiked, type) {
     if (!ID) return;
@@ -130,7 +130,7 @@
   });
 
   /******************************************************************
-   * HEART BADGE
+  // #region HEART BADGE
    ******************************************************************/
   const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
   const heartMap = new WeakMap(); // maps video element -> heart div
@@ -237,7 +237,7 @@
   }
 
   /******************************************************************
-   * PROCESS VIDEOS (optimized & toggle-safe)
+  // #region PROCESS VIDEOS
    ******************************************************************/
   function processVideo(el) {
     if (el._ytLikedProcessed) {
@@ -314,27 +314,114 @@
 
   observer.observe(document.body, { childList: true, subtree: true });
 
+  
   /******************************************************************
-   * CLEAR INDEX
+  // #region PLAYLIST SCAN
    ******************************************************************/
-  function clearLikedIndexDoubleConfirm() {
-    const total = likedIndex.size;
+  async function playlistScan() {
+    if (!location.pathname.includes("/playlist") || !location.search.includes("list=LL")) {
+      return alert(
+        "Playlist scan only works on your Liked videos playlist:\nwww.youtube.com/playlist?list=LL"
+      );
+    }
 
-    if (!confirm(`⚠️ This will permanently DELETE ${total.toLocaleString()} liked videos.\n\nContinue?`))
-      return;
+    const textOnlyStyle = document.createElement("style");
+    textOnlyStyle.textContent = `
+    /* Kill thumbnails */
+    ytd-playlist-video-renderer ytd-thumbnail,
+    ytd-playlist-video-renderer yt-image,
+    ytd-playlist-video-renderer img {
+      display: none !important;
+    }
 
-    const typed = prompt("Type CLEAR (all caps) to confirm:");
-    if (typed !== "CLEAR") return alert("Aborted.");
+    /* Flatten layout */
+    ytd-playlist-video-renderer {
+      min-height: auto !important;
+    }
 
-    likedIndex.clear();
-    persistIndex(likedIndex);
+    /* Reduce padding/margins */
+    ytd-playlist-video-renderer #content {
+      padding: 4px 0 !important;
+    }
 
-    alert("✅ Liked index cleared.");
-    processVideos();
+    /* Keep title readable */
+    ytd-playlist-video-renderer #video-title {
+      font-size: 13px !important;
+      line-height: 1.3 !important;
+    }
+    `;
+    document.head.appendChild(textOnlyStyle);
+
+    const startUrl = location.href;
+
+    const max = prompt(
+      "Auto-scroll will load the playlist.\n\n" +
+        "Optional: max videos to scan\n" +
+        "(Leave empty for ALL liked videos)"
+    );
+    if (max === null) return;
+
+    const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    let lastCount = 0;
+    let stableRounds = 0;
+
+    // Auto-scroll loop
+    while (true) {
+      if (location.href !== startUrl) {
+        alert("Playlist scan aborted — navigation detected.");
+        setTimeout(() => {
+          textOnlyStyle.remove();
+        }, 5000);
+        return;
+      }
+
+      const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
+      if (vids === lastCount) {
+        stableRounds++;
+      } else {
+        stableRounds = 0;
+        lastCount = vids;
+      }
+
+      if (stableRounds >= 4) break; // end loop if number of videos don't change for x loops
+      if (max && vids >= Number(max)) break; // end loop if user entered num and if vids greater than usernum
+
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await delay(1500); // loop delay: lower delay scrolls faster but also ends faster
+    }
+
+    // Scan loaded videos
+    const els = document.querySelectorAll("ytd-playlist-video-renderer");
+    let scanned = 0;
+    let added = 0;
+    const index = getLatestLikedIndex(); // fresh copy from storage
+
+    for (const el of els) {
+      const id = getVideoIdFromElement(el);
+      scanned++;
+
+      if (id && !index.has(id)) {
+        index.add(id);
+        added++;
+      }
+
+      if (max && scanned >= Number(max)) break;
+    }
+
+    likedIndex = index;
+    persistIndex(index);
+    setTimeout(() => {
+      processVideos();
+      alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
+      setTimeout(() => {
+        textOnlyStyle.remove();
+      }, 1000);
+    }, 0);
   }
 
   /******************************************************************
-   * IMPORT / EXPORT
+  // #region IMPORT / EXPORT / CLEAR
    ******************************************************************/
   // takeout and script import
   async function importTakeoutJson(file) {
@@ -437,111 +524,25 @@
     a.click();
   }
 
-  /******************************************************************
-   * PLAYLIST SCAN
-   ******************************************************************/
-  async function playlistScan() {
-    if (!location.pathname.includes("/playlist") || !location.search.includes("list=LL")) {
-      return alert(
-        "Playlist scan only works on your Liked videos playlist:\nwww.youtube.com/playlist?list=LL"
-      );
-    }
+  // clear index
+  function clearLikedIndexDoubleConfirm() {
+    const total = likedIndex.size;
 
-    const textOnlyStyle = document.createElement("style");
-    textOnlyStyle.textContent = `
-    /* Kill thumbnails */
-    ytd-playlist-video-renderer ytd-thumbnail,
-    ytd-playlist-video-renderer yt-image,
-    ytd-playlist-video-renderer img {
-      display: none !important;
-    }
+    if (!confirm(`⚠️ This will permanently DELETE ${total.toLocaleString()} liked videos.\n\nContinue?`))
+      return;
 
-    /* Flatten layout */
-    ytd-playlist-video-renderer {
-      min-height: auto !important;
-    }
+    const typed = prompt("Type CLEAR (all caps) to confirm:");
+    if (typed !== "CLEAR") return alert("Aborted.");
 
-    /* Reduce padding/margins */
-    ytd-playlist-video-renderer #content {
-      padding: 4px 0 !important;
-    }
+    likedIndex.clear();
+    persistIndex(likedIndex);
 
-    /* Keep title readable */
-    ytd-playlist-video-renderer #video-title {
-      font-size: 13px !important;
-      line-height: 1.3 !important;
-    }
-    `;
-    document.head.appendChild(textOnlyStyle);
-
-    const startUrl = location.href;
-
-    const max = prompt(
-      "Auto-scroll will load the playlist.\n\n" +
-        "Optional: max videos to scan\n" +
-        "(Leave empty for ALL liked videos)"
-    );
-    if (max === null) return;
-
-    const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    let lastCount = 0;
-    let stableRounds = 0;
-
-    // Auto-scroll loop
-    while (true) {
-      if (location.href !== startUrl) {
-        alert("Playlist scan aborted — navigation detected.");
-        setTimeout(() => {
-          textOnlyStyle.remove();
-        }, 5000);
-        return;
-      }
-
-      const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
-      if (vids === lastCount) {
-        stableRounds++;
-      } else {
-        stableRounds = 0;
-        lastCount = vids;
-      }
-
-      if (stableRounds >= 4) break; // end loop if number of videos don't change for x loops
-      if (max && vids >= Number(max)) break; // end loop if user entered num and if vids greater than usernum
-
-      window.scrollTo(0, document.documentElement.scrollHeight);
-      await delay(1500); // loop delay: lower delay scrolls faster but also ends faster
-    }
-
-    // Scan loaded videos
-    const els = document.querySelectorAll("ytd-playlist-video-renderer");
-    let scanned = 0;
-    let added = 0;
-    const index = getLatestLikedIndex(); // fresh copy from storage
-
-    for (const el of els) {
-      const id = getVideoIdFromElement(el);
-      scanned++;
-
-      if (id && !index.has(id)) {
-        index.add(id);
-        added++;
-      }
-
-      if (max && scanned >= Number(max)) break;
-    }
-
-    likedIndex = index;
-    persistIndex(index);
-    setTimeout(() => {
-      processVideos();
-      alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
-      setTimeout(() => {textOnlyStyle.remove();}, 1000);
-    }, 0);
+    alert("✅ Liked index cleared.");
+    processVideos();
   }
 
   /******************************************************************
-   * HEART MENU
+  // #region HEART MENU
    ******************************************************************/
   function createMenu() {
     if (document.getElementById("yt-liked-menu")) return;
@@ -558,6 +559,7 @@
             align-items:flex-end;
             gap:6px;
         `;
+
     // prettier-ignore
     const items = [
       {icon:'❤️‍', label:'Show hearts', key:'showHearts',toggle: true, act:()=>{showHearts = !showHearts;persistToggle('showHearts',showHearts)}},
@@ -663,10 +665,8 @@
   }
 
   /******************************************************************
-   * Fullscreen menu toggle
+  // #region HIDE MENU ON FULLSCREEN
    ******************************************************************/
-
-  // Hide button when video full screen
   function setupFullscreenToggle() {
     const menu = document.getElementById("yt-liked-menu");
     if (!menu) return;
