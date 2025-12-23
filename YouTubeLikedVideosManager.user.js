@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.5
+// @version      1.5.6.1
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -283,17 +283,47 @@
     document.querySelectorAll(VIDEO_SELECTOR).forEach(applyVideoStyles);
   }
 
+  // Debounce helper
+  const debounce = (func, wait) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+  };
+
   // MutationObserver for newly added nodes
   const pendingVideos = new Set();
-  let observerScheduled = false;
 
-  function flushPendingVideos() {
-    observerScheduled = false;
+  const flushPendingVideos = debounce(() => {
+  const startTime = performance.now();
+  const count = pendingVideos.size;
+  
+  pendingVideos.forEach((el) => processVideo(el));
+  pendingVideos.clear();
+  
+  const endTime = performance.now();
+  const duration = (endTime - startTime).toFixed(2);
+  
+  console.log(`[Performance] Processed ${count} videos in ${duration}ms`);
+}, 0);
 
-    pendingVideos.forEach((el) => processVideo(el));
-    pendingVideos.clear();
-  }
   const observer = new MutationObserver((muts) => {
+    console.log(`[Observer] Detected ${muts.length} mutations`);
+    // Ignore mutations from our own elements
+    if (muts.length === 1) {
+      const target = muts[0].target;
+      const addedNode = muts[0].addedNodes[0];
+      if (
+        target?.classList?.contains("yt-liked-indicator") ||
+        target?.id === "yt-liked-menu" ||
+        addedNode?.classList?.contains("yt-liked-indicator") ||
+        addedNode?.id === "yt-liked-menu"
+      ) {
+        return;
+      }
+    }
+
     muts.forEach((m) => {
       m.addedNodes.forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
@@ -306,15 +336,11 @@
       });
     });
 
-    if (!observerScheduled) {
-      observerScheduled = true;
-      setTimeout(flushPendingVideos, 0);
-    }
+    flushPendingVideos();
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
 
-  
   /******************************************************************
   // #region PLAYLIST SCAN
    ******************************************************************/
@@ -704,6 +730,25 @@
     // initial state
     check();
   }
+
+  /******************************************************************
+ // #region XHR HIJACKING FOR AJAX-LOADED CONTENT
+ ******************************************************************/
+  const originalSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (data) {
+    this.addEventListener(
+      "readystatechange",
+      function () {
+        if (this.responseURL?.indexOf("browse_ajax?action_continuation") > 0) {
+          setTimeout(() => processVideos(), 0);
+        }
+      },
+      false
+    );
+    originalSend.call(this, data);
+  };
+
+  createMenu();
 
   createMenu();
   setupFullscreenToggle();
