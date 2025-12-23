@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.3
+// @version      1.5.4
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -35,7 +35,7 @@
     });
   }
 
-  // Helper to get fresh copy immediately
+  // Helper to get fresh index copy immediately
   function getLatestLikedIndex() {
     return new Set(GM_getValue("likedIndex", []));
   }
@@ -173,7 +173,7 @@
       width: "22px",
       height: "22px",
       borderRadius: "50%",
-      display: showHearts ? "flex" : "none",
+      display: "flex",
       alignItems: "center",
       justifyContent: "center",
       fontSize: "10px",
@@ -246,7 +246,7 @@
     } // only skip nodes already processed by observer
 
     el._ytLikedProcessed = true;
-    console.log("[Observer] Processing NEW video:", el);
+    // console.log("[Observer] Processing NEW video:", el);
     applyVideoStyles(el);
   }
 
@@ -289,11 +289,6 @@
 
   function flushPendingVideos() {
     observerScheduled = false;
-
-    const count = pendingVideos.size; //remove later
-    if (count === 0) return; //remove later
-
-    console.log(`[Observer] Flushing ${count} new video node(s)`); //remove later
 
     pendingVideos.forEach((el) => processVideo(el));
     pendingVideos.clear();
@@ -452,6 +447,33 @@
       );
     }
 
+    const textOnlyStyle = document.createElement("style");
+    textOnlyStyle.textContent = `
+    /* Kill thumbnails */
+    ytd-playlist-video-renderer ytd-thumbnail,
+    ytd-playlist-video-renderer yt-image,
+    ytd-playlist-video-renderer img {
+      display: none !important;
+    }
+
+    /* Flatten layout */
+    ytd-playlist-video-renderer {
+      min-height: auto !important;
+    }
+
+    /* Reduce padding/margins */
+    ytd-playlist-video-renderer #content {
+      padding: 4px 0 !important;
+    }
+
+    /* Keep title readable */
+    ytd-playlist-video-renderer #video-title {
+      font-size: 13px !important;
+      line-height: 1.3 !important;
+    }
+    `;
+    document.head.appendChild(textOnlyStyle);
+
     const startUrl = location.href;
 
     const max = prompt(
@@ -470,10 +492,13 @@
     while (true) {
       if (location.href !== startUrl) {
         alert("Playlist scan aborted — navigation detected.");
+        setTimeout(() => {
+          textOnlyStyle.remove();
+        }, 5000);
         return;
       }
-      const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
 
+      const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
       if (vids === lastCount) {
         stableRounds++;
       } else {
@@ -481,11 +506,11 @@
         lastCount = vids;
       }
 
-      if (stableRounds >= 6) break; // end loop if number of videos don't change for x loops
+      if (stableRounds >= 4) break; // end loop if number of videos don't change for x loops
       if (max && vids >= Number(max)) break; // end loop if user entered num and if vids greater than usernum
 
       window.scrollTo(0, document.documentElement.scrollHeight);
-      await delay(800); // loop delay: lower delay scrolls faster but also ends faster
+      await delay(1500); // loop delay: lower delay scrolls faster but also ends faster
     }
 
     // Scan loaded videos
@@ -511,6 +536,7 @@
     setTimeout(() => {
       processVideos();
       alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
+      setTimeout(() => {textOnlyStyle.remove();}, 1000);
     }, 0);
   }
 
