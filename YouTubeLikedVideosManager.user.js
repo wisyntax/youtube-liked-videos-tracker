@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.5.2
+// @version      1.5.5.3
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -150,18 +150,43 @@
   const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
   const heartMap = new WeakMap(); // maps video element -> heart div
   const hostMap = new WeakMap(); // maps video element -> overlay host
-
+  
+  // have heart badge parent use it for dim/hide logic
   const style = document.createElement("style");
   style.textContent = `
   .yt-liked-heart-hidden { display: none !important; }
+
+    /* DIM liked videos - only apply to top-level parents */ 
+  body.yt-liked-dim ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, channel */
+  body.yt-liked-dim yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *), /* main, history */
+  body.yt-liked-dim ytd-video-renderer:has(.yt-liked-indicator), /* search */
+  body.yt-liked-dim ytd-playlist-video-renderer:has(.yt-liked-indicator) { /* playlists */
+  opacity: 0.40;
+  }
+  
+  /* HIDE liked videos - only apply to top-level parents */
+  body.yt-liked-hide ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, history */
+  body.yt-liked-hide yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *), /* main, history */
+  body.yt-liked-hide ytd-video-renderer:has(.yt-liked-indicator) { /* search */
+    display: none !important;
+}
 `;
   document.head.appendChild(style);
+
+  function resolveOverlayHost(el) {
+    // find host for heart
+    const thumb =
+      el.querySelector("a#thumbnail") ||
+      el.querySelector("ytd-thumbnail") ||
+      el.querySelector("yt-thumbnail-view-model");
+    if (thumb) return thumb;
+    return null;
+  }
 
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id || !likedIndex.has(id)) return; // skip unliked videos
-    if (heartMap.has(el)) return; // already has heart
-
+    if (heartMap.has(el) || hasHigherPriorityAncestor(el)) return; // skip if map or parent has heart
     // resolve host only once
     let host = hostMap.get(el);
     if (!host) {
@@ -201,36 +226,18 @@
     heartMap.set(el, heart);
   }
 
-  function resolveOverlayHost(el) {
-    // Shorts shelf (search / home)
-    const shortsShelfThumb = el.querySelector('a[href^="/shorts"] yt-thumbnail-view-model');
-    if (shortsShelfThumb) return shortsShelfThumb;
-
-    // History page: anchor inside yt-thumbnail-view-model for perfect overlay
-    const historyThumb = el.querySelector("a.yt-lockup-view-model__content-image yt-thumbnail-view-model");
-    if (historyThumb) return historyThumb;
-
-    // Playlist page: anchor inside the inner <yt-image> for exact thumbnail
-    const playlistThumb = el.querySelector("ytd-thumbnail a#thumbnail");
-    if (playlistThumb) return playlistThumb;
-
-    // Standard video renderers
-    const standardThumb =
-      el.querySelector("a#thumbnail") ||
-      el.querySelector("ytd-thumbnail") ||
-      el.querySelector("yt-thumbnail-view-model");
-    if (standardThumb) return standardThumb;
-
-    // Absolute fallback
-    return null;
-  }
-
   function syncHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id) return;
 
     let heart = heartMap.get(el);
-
+    
+    // ensure heart exists
+    if (!heart) {
+      addHeart(el);
+      heart = heartMap.get(el);
+      if (!heart) return;
+    }
     // if video is NOT liked, remove heart
     if (!likedIndex.has(id)) {
       if (heart) {
@@ -240,12 +247,6 @@
       return;
     }
 
-    // ensure heart exists
-    if (!heart) {
-      addHeart(el);
-      heart = heartMap.get(el);
-      if (!heart) return;
-    }
 
     // toggle visibility only
     heart.classList.toggle(HEART_HIDDEN_CLASS, !showHearts);
@@ -254,64 +255,51 @@
   /******************************************************************
   // #region PROCESS VIDEOS
    ******************************************************************/
-  function processVideo(el) {
-  const id = getVideoIdFromElement(el);
-  if (!id) return;
-
-  // Check if video ID changed - if so, reprocess
-  const previousId = el._ytLikedProcessed;
-  if (previousId && previousId !== id) {
-  const oldHeart = heartMap.get(el);
-  if (oldHeart) {
-    oldHeart.remove();
-    heartMap.delete(el);
-  }
-}
-
-  // Skip if already processed for this video ID
-  if (el._ytLikedProcessed === id) {
-    return;
-  }
-
-  // Mark as processed for this video ID
-  el._ytLikedProcessed = id;
-  applyVideoStyles(el);
-}
-
-  function applyVideoStyles(el) {
-    const id = getVideoIdFromElement(el);
-    if (!id) return;
-    // Reset display & opacity
-    el.style.display = "";
-    el.style.opacity = "";
-    const shelf = el.closest(".ytGridShelfViewModelGridShelfItem");
-    if (shelf) shelf.style.display = "";
-
-    // Heart
-    syncHeart(el);
-
-    // Hide / dim liked
-    if (likedIndex.has(id)) {
-      if (hideLiked) (shelf || el).style.display = "none";
-      else if (dimLiked) el.style.opacity = "0.55";
-    }
+  function updateBodyToggles() {
+    document.body.classList.toggle("yt-liked-dim", dimLiked);
+    document.body.classList.toggle("yt-liked-hide", hideLiked);
   }
 
   // check for "ytm-shorts-lockup-view-model" if youtube changes short shelf again
-  const VIDEO_SELECTOR =
-    "ytd-rich-item-renderer," +
-    "ytd-video-renderer," +
-    "ytd-grid-video-renderer," +
-    "ytd-playlist-video-renderer," +
-    "yt-lockup-view-model," +
-    "ytm-shorts-lockup-view-model-v2";
+  const VIDEO_PRIORITY = [
+    "ytd-rich-item-renderer",
+    "yt-lockup-view-model",
+    "ytd-video-renderer",
+    "ytd-grid-video-renderer",
+    "ytd-playlist-video-renderer",
+    "ytm-shorts-lockup-view-model-v2",
+  ];
 
+  // Build a single CSS selector for querySelectorAll
+  const VIDEO_SELECTOR = VIDEO_PRIORITY.join(",");
 
-  // Process all elements, re-apply toggles
+  /**
+   * Returns true if `el` has any ancestor that matches VIDEO_SELECTOR
+   * and has **higher priority** than `el`.
+   */
+  function hasHigherPriorityAncestor(el) {
+    let parent = el.parentElement;
+    while (parent) {
+      if (parent.matches?.(VIDEO_SELECTOR)) {
+        return true; // parent is a video element, skip this child
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
+  /**
+   * Process all video elements hierarchy-aware
+   */
   function processAllVideos() {
-  document.querySelectorAll(VIDEO_SELECTOR).forEach(applyVideoStyles);
-}
-
+    document.querySelectorAll(VIDEO_SELECTOR).forEach((el) => {
+      // Skip if this element is nested inside another video element
+      if (hasHigherPriorityAncestor(el)) {
+        return;
+      }
+      syncHeart(el);
+    });
+  }
 
   // Debounce helper
   const debounce = (func, wait) => {
@@ -331,10 +319,11 @@
 
     const startTime = performance.now();
 
-    pendingVideos.forEach((el) => processVideo(el));
+    pendingVideos.forEach((el) => syncHeart(el));
+
     pendingVideos.clear();
 
-    const duration = (performance.now() - startTime).toFixed(2);
+    const duration = (performance.now() - startTime).toFixed(3);
     console.log(`[Performance] Processed ${count} videos in ${duration}ms`);
   };
 
@@ -352,26 +341,20 @@
       }
     : debounce(flushPendingVideosRaw, 250);
 
+  const IGNORED_CLASSES = new Set(["yt-liked-indicator", "yt-liked-menu"]);
+
   const observer = new MutationObserver((muts) => {
-    // console.log(`[Observer] Detected ${muts.length} mutations`);
-    // Ignore mutations from script elements
-    if (muts.length === 1) {
-      const target = muts[0].target;
-      const addedNode = muts[0].addedNodes[0];
-      if (
-        target?.classList?.contains("yt-liked-indicator") ||
-        target?.id === "yt-liked-menu" ||
-        addedNode?.classList?.contains("yt-liked-indicator") ||
-        addedNode?.id === "yt-liked-menu"
-      ) {
-        return;
-      }
+    if (
+      muts.length === 1 &&
+      (muts[0].target?.classList.forEach((c) => IGNORED_CLASSES.has(c)) ||
+        muts[0].addedNodes[0]?.classList.forEach((c) => IGNORED_CLASSES.has(c)))
+    ) {
+      return;
     }
 
     muts.forEach((m) => {
       m.addedNodes.forEach((n) => {
         if (!(n instanceof HTMLElement)) return;
-
         if (n.matches?.(VIDEO_SELECTOR)) {
           pendingVideos.add(n);
         } else {
@@ -384,11 +367,6 @@
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-
-  document.addEventListener("yt-page-data-updated", () => {
-    console.log('yt-page-data-updated')
-    requestAnimationFrame(processAllVideos);
-  });
 
   /******************************************************************
   // #region PLAYLIST SCAN
@@ -658,6 +636,7 @@
         () => {
           i.act();
           updateButtons();
+          updateBodyToggles();
           processAllVideos();
         },
         "#333"
@@ -693,6 +672,7 @@
         () => {
           i.act();
           updateButtons();
+          updateBodyToggles();
           processAllVideos();
         },
         "#333"
@@ -763,13 +743,14 @@
 
         // specifically change the Turbo Mode button color
         if (i.key === "turboMode") {
-          b.style.background = on ? "#395ebdff" : "#555"; // choose your colors
+          b.style.background = on ? "#395ebdff" : "#333"; // choose your colors
         }
       });
 
-      // optionally, also change the Options button if Turbo is on
-      optionsBtn.style.background = turboMode ? "#395ebdff" : "#333";
+      // Change the options button if turbo is on
+      optionsBtn.style.background = turboMode ? "#395ebdff" : "#555";
     }
+
     function openImport() {
       const f = document.createElement("input");
       f.type = "file";
@@ -866,5 +847,6 @@
 
   createMenu();
   setupFullscreenToggle();
+  updateBodyToggles();
   processAllVideos();
 })();
