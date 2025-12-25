@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.6.1
+// @version      1.5.5.2
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -20,6 +20,8 @@
   let hideLiked = GM_getValue("hideLiked", false);
   let dimLiked = GM_getValue("dimLiked", false);
   let showHearts = GM_getValue("showHearts", true);
+  let turboMode = GM_getValue("turboMode", false);
+
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
   const persistToggle = (k, v) => GM_setValue(k, v);
 
@@ -30,7 +32,7 @@
         likedIndex.clear();
         (newValue || []).forEach((v) => likedIndex.add(v));
         console.log("[Sync] likedIndex updated from another tab");
-        processVideos();
+        processAllVideos();
       }
     });
   }
@@ -38,6 +40,19 @@
   // Helper to get fresh index copy immediately
   function getLatestLikedIndex() {
     return new Set(GM_getValue("likedIndex", []));
+  }
+
+  // turbo toggle alert
+  let turboTogglePrompt = false;
+
+  function turboToggle() {
+    if (turboTogglePrompt) return;
+    turboTogglePrompt = true;
+    if (
+      confirm("Turbo mode was changed.\n\n" + "Reload now to apply it?\n\n" + "Press Cancel to reload later.")
+    ) {
+      location.reload();
+    }
   }
 
   /******************************************************************
@@ -240,15 +255,28 @@
   // #region PROCESS VIDEOS
    ******************************************************************/
   function processVideo(el) {
-    if (el._ytLikedProcessed) {
-      console.log("[Observer] Skipped already processed:", el);
-      return;
-    } // only skip nodes already processed by observer
+  const id = getVideoIdFromElement(el);
+  if (!id) return;
 
-    el._ytLikedProcessed = true;
-    // console.log("[Observer] Processing NEW video:", el);
-    applyVideoStyles(el);
+  // Check if video ID changed - if so, reprocess
+  const previousId = el._ytLikedProcessed;
+  if (previousId && previousId !== id) {
+  const oldHeart = heartMap.get(el);
+  if (oldHeart) {
+    oldHeart.remove();
+    heartMap.delete(el);
   }
+}
+
+  // Skip if already processed for this video ID
+  if (el._ytLikedProcessed === id) {
+    return;
+  }
+
+  // Mark as processed for this video ID
+  el._ytLikedProcessed = id;
+  applyVideoStyles(el);
+}
 
   function applyVideoStyles(el) {
     const id = getVideoIdFromElement(el);
@@ -269,7 +297,7 @@
     }
   }
 
-  // add "ytm-shorts-lockup-view-model" to selectors if youtube changes short shelf
+  // check for "ytm-shorts-lockup-view-model" if youtube changes short shelf again
   const VIDEO_SELECTOR =
     "ytd-rich-item-renderer," +
     "ytd-video-renderer," +
@@ -278,10 +306,12 @@
     "yt-lockup-view-model," +
     "ytm-shorts-lockup-view-model-v2";
 
+
   // Process all elements, re-apply toggles
-  function processVideos() {
-    document.querySelectorAll(VIDEO_SELECTOR).forEach(applyVideoStyles);
-  }
+  function processAllVideos() {
+  document.querySelectorAll(VIDEO_SELECTOR).forEach(applyVideoStyles);
+}
+
 
   // Debounce helper
   const debounce = (func, wait) => {
@@ -295,22 +325,36 @@
   // MutationObserver for newly added nodes
   const pendingVideos = new Set();
 
-  const flushPendingVideos = debounce(() => {
-  const startTime = performance.now();
-  const count = pendingVideos.size;
-  
-  pendingVideos.forEach((el) => processVideo(el));
-  pendingVideos.clear();
-  
-  const endTime = performance.now();
-  const duration = (endTime - startTime).toFixed(2);
-  
-  console.log(`[Performance] Processed ${count} videos in ${duration}ms`);
-}, 0);
+  const flushPendingVideosRaw = () => {
+    const count = pendingVideos.size;
+    if (count === 0) return;
+
+    const startTime = performance.now();
+
+    pendingVideos.forEach((el) => processVideo(el));
+    pendingVideos.clear();
+
+    const duration = (performance.now() - startTime).toFixed(2);
+    console.log(`[Performance] Processed ${count} videos in ${duration}ms`);
+  };
+
+  let rafScheduled = false;
+
+  const flushPendingVideos = turboMode
+    ? () => {
+        if (rafScheduled) return;
+        rafScheduled = true;
+
+        requestAnimationFrame(() => {
+          rafScheduled = false;
+          flushPendingVideosRaw();
+        });
+      }
+    : debounce(flushPendingVideosRaw, 250);
 
   const observer = new MutationObserver((muts) => {
-    console.log(`[Observer] Detected ${muts.length} mutations`);
-    // Ignore mutations from our own elements
+    // console.log(`[Observer] Detected ${muts.length} mutations`);
+    // Ignore mutations from script elements
     if (muts.length === 1) {
       const target = muts[0].target;
       const addedNode = muts[0].addedNodes[0];
@@ -340,6 +384,11 @@
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener("yt-page-data-updated", () => {
+    console.log('yt-page-data-updated')
+    requestAnimationFrame(processAllVideos);
+  });
 
   /******************************************************************
   // #region PLAYLIST SCAN
@@ -438,7 +487,7 @@
     likedIndex = index;
     persistIndex(index);
     setTimeout(() => {
-      processVideos();
+      processAllVideos();
       alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
       setTimeout(() => {
         textOnlyStyle.remove();
@@ -482,7 +531,7 @@
 
     likedIndex = index;
     persistIndex(index);
-    processVideos();
+    processAllVideos();
     alert(`Imported ${added} liked videos (${type})`);
   }
 
@@ -510,7 +559,7 @@
 
     likedIndex = index;
     persistIndex(index);
-    processVideos();
+    processAllVideos();
     alert(`Imported ${added} liked videos`);
   }
 
@@ -564,49 +613,52 @@
     persistIndex(likedIndex);
 
     alert("✅ Liked index cleared.");
-    processVideos();
+    processAllVideos();
   }
 
   /******************************************************************
-  // #region HEART MENU
-   ******************************************************************/
+// #region HEART MENU (Updated with Options submenu)
+******************************************************************/
   function createMenu() {
     if (document.getElementById("yt-liked-menu")) return;
 
     const wrap = document.createElement("div");
     wrap.id = "yt-liked-menu";
     wrap.style.cssText = `
-            position:fixed;
-            bottom:20px;
-            right:20px;
-            z-index:99999;
-            display:flex;
-            flex-direction:column;
-            align-items:flex-end;
-            gap:6px;
-        `;
-
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+    `;
     // prettier-ignore
-    const items = [
-      {icon:'❤️‍', label:'Show hearts', key:'showHearts',toggle: true, act:()=>{showHearts = !showHearts;persistToggle('showHearts',showHearts)}},
-      {icon:'🩵', label:'Hide liked videos', key:'hideLiked', toggle:true, act:()=>{hideLiked=!hideLiked; persistToggle('hideLiked',hideLiked)}},
-      {icon:'🩶', label:'Dim liked videos', key:'dimLiked', toggle:true, act:()=>{dimLiked=!dimLiked; persistToggle('dimLiked',dimLiked)}},
-      {icon:'💖', label:'Liked playlist scan', act:playlistScan},
-      {icon:'💗', label:'Import', act:openImport},
-      {icon:'💞', label:'Export', act:exportLikes},
-      {icon:'💔', label:'Clear liked index', act:clearLikedIndexDoubleConfirm}
+    const mainItems = [
+        { icon: "❤️‍", label: "Show hearts", key: "showHearts", toggle: true, act: () => { showHearts = !showHearts; persistToggle("showHearts", showHearts); } },
+        { icon: "🩵", label: "Dim liked videos", key: "dimLiked", toggle: true, act: () => { dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked); } },
+        { icon: "🩶", label: "Hide liked videos", key: "hideLiked", toggle: true, act: () => { hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked); } },
+        { icon: "💖", label: "Liked playlist scan", act: playlistScan },
+    ];
+    // prettier-ignore
+    const optionsItems = [
+        { icon: "❤️‍🔥", label: "Turbo", key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggle(); } },
+        { icon: "💗", label: "Import", act: openImport },
+        { icon: "💞", label: "Export", act: exportLikes },
+        { icon: "💔", label: "Clear liked index", act: clearLikedIndexDoubleConfirm },
     ];
 
     const btns = [];
 
-    // menu items FIRST
-    items.forEach((i) => {
+    // Create main buttons
+    mainItems.forEach((i) => {
       const b = makeButton(
         `${i.label} ${i.icon}`,
         () => {
           i.act();
-          update();
-          processVideos();
+          updateButtons();
+          processAllVideos();
         },
         "#333"
       );
@@ -615,8 +667,44 @@
       btns.push({ b, i });
     });
 
-    // main button LAST
-    const main = makeButton("♥️", toggleMenu, "#00bfa5");
+    // Create Options button (inside main menu)
+    const optionsBtn = makeButton("Options ❤️‍🩹", toggleOptions, "#333");
+    optionsBtn.style.display = "none"; // hidden until main opens
+    optionsBtn.style.position = "relative"; // anchor for submenu
+    wrap.appendChild(optionsBtn);
+
+    // Options submenu container
+    const optionsContainer = document.createElement("div");
+    optionsContainer.style.cssText = `
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+        position: absolute;
+        bottom: 0;
+        right: 100%;
+        margin-right: 6px;
+    `;
+    optionsContainer.style.display = "none"; // hidden by default
+    optionsBtn.appendChild(optionsContainer);
+
+    const optionsBtns = optionsItems.map((i) => {
+      const b = makeButton(
+        `${i.label} ${i.icon}`,
+        () => {
+          i.act();
+          updateButtons();
+          processAllVideos();
+        },
+        "#333"
+      );
+      b.style.display = "none";
+      b.style.whiteSpace = "nowrap";
+      optionsContainer.appendChild(b);
+      return { b, i };
+    });
+
+    // Main toggle button
+    const main = makeButton("♥️", toggleMain, "#00bfa5");
     main.title = "Liked Video Controls";
     wrap.appendChild(main);
     main.style.padding = "6px";
@@ -625,17 +713,35 @@
 
     document.body.appendChild(wrap);
 
-    function toggleMenu() {
+    // Prevent submenu clicks from closing the menu
+    optionsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    optionsContainer.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    function toggleMain() {
       const open = btns[0].b.style.display === "block";
       btns.forEach((x) => (x.b.style.display = open ? "none" : "block"));
+      optionsBtn.style.display = open ? "none" : "block";
+      if (open) {
+        optionsBtns.forEach((x) => (x.b.style.display = "none"));
+        optionsContainer.style.display = "none";
+      }
     }
 
-    function update() {
-      btns.forEach(({ b, i }) => {
+    function toggleOptions() {
+      const open = optionsBtns[0].b.style.display === "block";
+      optionsBtns.forEach((x) => (x.b.style.display = open ? "none" : "block"));
+      optionsContainer.style.display = open ? "none" : "flex";
+    }
+
+    function updateButtons() {
+      [...btns, ...optionsBtns].forEach(({ b, i }) => {
         if (!i.toggle || !i.key) return;
-
         let on = false;
-
         switch (i.key) {
           case "hideLiked":
             on = hideLiked;
@@ -646,13 +752,24 @@
           case "showHearts":
             on = showHearts;
             break;
+          case "turboMode":
+            on = turboMode;
+            break;
         }
 
+        // normal buttons
         b.style.background = on ? "#d32f2f" : "#333";
         b.style.fontWeight = on ? "bold" : "normal";
-      });
-    }
 
+        // specifically change the Turbo Mode button color
+        if (i.key === "turboMode") {
+          b.style.background = on ? "#395ebdff" : "#555"; // choose your colors
+        }
+      });
+
+      // optionally, also change the Options button if Turbo is on
+      optionsBtn.style.background = turboMode ? "#395ebdff" : "#333";
+    }
     function openImport() {
       const f = document.createElement("input");
       f.type = "file";
@@ -662,14 +779,32 @@
       f.click();
     }
 
-    document.addEventListener("click", (e) => {
-      if (!wrap.contains(e.target)) btns.forEach((x) => (x.b.style.display = "none"));
-    });
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (
+          !wrap.contains(e.target) ||
+          e.target.closest("yt-chip-cloud-chip-renderer, tp-yt-paper-tab, ytd-searchbox")
+        ) {
+          btns.forEach((x) => (x.b.style.display = "none"));
+          optionsBtn.style.display = "none";
+          optionsBtns.forEach((x) => (x.b.style.display = "none"));
+          optionsContainer.style.display = "none";
+        }
+      },
+      true
+    );
+
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") btns.forEach((x) => (x.b.style.display = "none"));
+      if (e.key === "Escape") {
+        btns.forEach((x) => (x.b.style.display = "none"));
+        optionsBtn.style.display = "none";
+        optionsBtns.forEach((x) => (x.b.style.display = "none"));
+        optionsContainer.style.display = "none";
+      }
     });
 
-    update();
+    updateButtons();
   }
 
   function makeButton(text, fn, bg) {
@@ -678,21 +813,19 @@
     b.textContent = text;
     b.onclick = fn;
     b.style.cssText = `
-            background:${bg};
-            color:#fff;
-            border:none;
-            border-radius:14px;
-            padding:7px 10px;
-            font-size:12px;
-            cursor:pointer;
-            box-shadow:0 3px 10px rgba(0,0,0,.35);
-        `;
+        background:${bg};
+        color:#fff;
+        border:none;
+        border-radius:14px;
+        padding:7px 10px;
+        font-size:12px;
+        cursor:pointer;
+        box-shadow:0 3px 10px rgba(0,0,0,.35);
+    `;
     return b;
   }
 
-  /******************************************************************
-  // #region HIDE MENU ON FULLSCREEN
-   ******************************************************************/
+  // HIDE MENU ON FULLSCREEN
   function setupFullscreenToggle() {
     const menu = document.getElementById("yt-liked-menu");
     if (!menu) return;
@@ -731,26 +864,7 @@
     check();
   }
 
-  /******************************************************************
- // #region XHR HIJACKING FOR AJAX-LOADED CONTENT
- ******************************************************************/
-  const originalSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function (data) {
-    this.addEventListener(
-      "readystatechange",
-      function () {
-        if (this.responseURL?.indexOf("browse_ajax?action_continuation") > 0) {
-          setTimeout(() => processVideos(), 0);
-        }
-      },
-      false
-    );
-    originalSend.call(this, data);
-  };
-
-  createMenu();
-
   createMenu();
   setupFullscreenToggle();
-  processVideos();
+  processAllVideos();
 })();
