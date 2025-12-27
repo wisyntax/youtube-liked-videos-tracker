@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Manager
 // @namespace    Violentmonkey Scripts
-// @version      1.5.5.3
+// @version      1.5.5.4
 // @description  Full-featured liked videos manager and checker with hide/dim, import/export, liked videos playlist scan, and hearts overlay
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
@@ -150,31 +150,35 @@
   const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
   const heartMap = new WeakMap(); // maps video element -> heart div
   const hostMap = new WeakMap(); // maps video element -> overlay host
-  
+
   // have heart badge parent use it for dim/hide logic
   const style = document.createElement("style");
+  style.title = "yt-liked";
   style.textContent = `
   .yt-liked-heart-hidden { display: none !important; }
 
     /* DIM liked videos - only apply to top-level parents */ 
-  body.yt-liked-dim ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, channel */
+  body.yt-liked-dim ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, channel videos */
   body.yt-liked-dim yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *), /* main, history */
   body.yt-liked-dim ytd-video-renderer:has(.yt-liked-indicator), /* search */
-  body.yt-liked-dim ytd-playlist-video-renderer:has(.yt-liked-indicator) { /* playlists */
-  opacity: 0.40;
+  body.yt-liked-dim ytd-playlist-video-renderer:has(.yt-liked-indicator), /* playlists DO NOT ADD TO HIDE */
+  body.yt-liked-dim ytd-grid-video-renderer:has(.yt-liked-indicator) { /* channel */
+    opacity: 0.40;
   }
   
   /* HIDE liked videos - only apply to top-level parents */
-  body.yt-liked-hide ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, history */
+  body.yt-liked-hide ytd-rich-item-renderer:has(.yt-liked-indicator), /* main, channel videos */
   body.yt-liked-hide yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *), /* main, history */
-  body.yt-liked-hide ytd-video-renderer:has(.yt-liked-indicator) { /* search */
+  body.yt-liked-hide ytd-video-renderer:has(.yt-liked-indicator), /* search */
+  body.yt-liked-hide ytd-grid-video-renderer:has(.yt-liked-indicator) { /* channel */
     display: none !important;
 }
 `;
   document.head.appendChild(style);
 
+
+  // find host video thumbnail for heart
   function resolveOverlayHost(el) {
-    // find host for heart
     const thumb =
       el.querySelector("a#thumbnail") ||
       el.querySelector("ytd-thumbnail") ||
@@ -186,7 +190,8 @@
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id || !likedIndex.has(id)) return; // skip unliked videos
-    if (heartMap.has(el) || hasHigherPriorityAncestor(el)) return; // skip if map or parent has heart
+    if (heartMap.has(el)) return; // skip if map has heart
+    if (el.querySelector(".yt-liked-indicator")) return; // skip if el has heart
     // resolve host only once
     let host = hostMap.get(el);
     if (!host) {
@@ -231,7 +236,7 @@
     if (!id) return;
 
     let heart = heartMap.get(el);
-    
+
     // ensure heart exists
     if (!heart) {
       addHeart(el);
@@ -246,7 +251,6 @@
       }
       return;
     }
-
 
     // toggle visibility only
     heart.classList.toggle(HEART_HIDDEN_CLASS, !showHearts);
@@ -379,17 +383,12 @@
     }
 
     const textOnlyStyle = document.createElement("style");
+    textOnlyStyle.title = "yt-liked-text-mode-scan";
     textOnlyStyle.textContent = `
-    /* Kill thumbnails */
+    /* Hide thumbnails */
     ytd-playlist-video-renderer ytd-thumbnail,
-    ytd-playlist-video-renderer yt-image,
     ytd-playlist-video-renderer img {
       display: none !important;
-    }
-
-    /* Flatten layout */
-    ytd-playlist-video-renderer {
-      min-height: auto !important;
     }
 
     /* Reduce padding/margins */
@@ -400,7 +399,7 @@
     /* Keep title readable */
     ytd-playlist-video-renderer #video-title {
       font-size: 13px !important;
-      line-height: 1.3 !important;
+      line-height: 1 !important;
     }
     `;
     document.head.appendChild(textOnlyStyle);
