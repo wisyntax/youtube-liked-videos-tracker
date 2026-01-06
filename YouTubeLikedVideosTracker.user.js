@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    Violentmonkey Scripts
-// @version      2.0
+// @version      2.1
 // @description  Adds hearts to liked videos, with options to dim or hide them.
 // @author       arkWish
 // @match        *://www.youtube.com/*
@@ -11,8 +11,9 @@
 // @grant        GM_addValueChangeListener
 // ==/UserScript==
 
+// stop script execution in subframes
 if (window.top !== window.self) {
-  return; // stop script execution in subframes
+  return;
 }
 
 (() => {
@@ -25,8 +26,9 @@ if (window.top !== window.self) {
   let showHearts = GM_getValue("showHearts", true);
   let dimLiked = GM_getValue("dimLiked", false);
   let hideLiked = GM_getValue("hideLiked", false);
+  let highlightTitle = GM_getValue("highlightTitle", false);
+  let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
-  let dimOpacity = GM_getValue("dimOpacity", 0.4);
   const DEBOUNCE_TIMER = 250;
 
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
@@ -57,6 +59,162 @@ if (window.top !== window.self) {
   }
 
   //*****************************************************************
+  // #region CSS LOGIC
+  //*****************************************************************
+  // CSS rules rely on presence of .ytlvt-liked-indicator via :has()
+  // to dim or hide liked videos at the container level
+  const heartToggleStyle = document.createElement("style");
+  heartToggleStyle.id = "ytlvt-liked";
+  heartToggleStyle.title = "liked videos style";
+  heartToggleStyle.textContent = `
+:root {
+  --ytlvt-liked-dim-opacity: ${dimOpacity};
+}
+
+.ytlvt-liked-heart-hidden { display: none !important; }
+
+/* DIM liked videos - only apply to top-level parents */ 
+body.ytlvt-liked-dim :is(
+  ytd-rich-item-renderer,  /* main, channel videos */
+  ytd-video-renderer, /* search */
+  ytd-grid-video-renderer,  /* channel */
+  ytd-playlist-video-renderer,  /* playlists */
+  ytd-playlist-panel-video-renderer,  /* playlist panel */
+  .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
+  .ytp-modern-videowall-still,  /* video end screen */
+  .ytp-autonav-endscreen-upnext-container  /* video autoplay - no need to add to hide */
+):has(.ytlvt-liked-indicator),
+/* Selectors that need :not() */
+body.ytlvt-liked-dim yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
+body.ytlvt-liked-dim ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *) {  /* shorts shelf */
+  opacity: var(--ytlvt-liked-dim-opacity);
+}
+
+/* UNDIM dimmed on hover */
+body.ytlvt-liked-dim :is(
+  ytd-rich-item-renderer,
+  yt-lockup-view-model,
+  ytd-video-renderer,
+  ytd-grid-video-renderer,
+  ytd-playlist-video-renderer,
+  ytd-playlist-panel-video-renderer,
+  .ytGridShelfViewModelGridShelfItem,
+  ytm-shorts-lockup-view-model-v2,
+  .ytp-modern-videowall-still,
+  .ytp-autonav-endscreen-upnext-container
+):hover {
+  opacity: 1 !important;
+  transition: opacity 200ms ease-in;
+  transition-delay: 300ms;
+}
+
+/* HIDE liked videos - only apply to top-level parents */
+body.ytlvt-liked-hide:not(.ytlvt-liked-hide-disabled) :is(
+  ytd-rich-item-renderer,  /* main, channel videos */
+  ytd-video-renderer,  /* search */
+  ytd-grid-video-renderer,  /* channel */
+  ytd-playlist-video-renderer, /* playlists excluding liked videos*/
+  ytd-playlist-panel-video-renderer,  /* playlist panel */
+  .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
+  .ytp-modern-videowall-still  /* video end screen */
+):has(.ytlvt-liked-indicator),
+body.ytlvt-liked-hide yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
+body.ytlvt-liked-hide ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *),  /* shorts shelf */
+body.ytlvt-liked-hide a.ytp-modern-videowall-still:has(.ytlvt-liked-indicator) {
+  display: none !important;
+}
+
+/* COLOR liked video titles when hearts are shown */
+body.ytlvt-liked-highlight-title :is(
+  ytd-rich-item-renderer,
+  yt-lockup-view-model,
+  ytd-video-renderer,
+  ytd-grid-video-renderer,
+  ytd-playlist-video-renderer,
+  ytd-playlist-panel-video-renderer,
+  .ytGridShelfViewModelGridShelfItem,
+  ytm-shorts-lockup-view-model-v2,
+  .ytp-modern-videowall-still,
+  .ytp-autonav-endscreen-upnext-container
+):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
+  .yt-lockup-metadata-view-model__title,
+  .ytp-modern-videowall-still-info-title,
+  #video-title
+) {
+  color: red !important;
+}
+
+/* HIDE menu on fullscreen */
+html:fullscreen #ytlvt-heart-menu,
+html.ytp-fullscreen #ytlvt-heart-menu,
+ytd-app[fullscreen] #ytlvt-heart-menu {
+  display: none !important;
+}
+
+/* menu button style on toggle */
+.ytlvt-menu-button-on {
+  background: #d32f2f !important;
+  font-weight: bold;
+}
+
+/* option button style on toggle */
+.ytlvt-option-button-on {
+  background: #395ebdff !important;
+}
+.ytlvt-menu-button-container:has(#ytlvt-dimLiked-button.ytlvt-menu-button-on) #ytlvt-dimOpacity-button {
+  background: #395ebdff !important;
+  accent-color: #d32f2f;
+}
+/* option toggle button style change */
+#ytlvt-menu-options-container:has(#ytlvt-turboMode-button.ytlvt-option-button-on) #ytlvt-options-button {
+  background: #395ebdff !important;
+}
+
+/* greyout main button when no toggle */
+#ytlvt-heart-menu:not(:has(.ytlvt-menu-button-on)) #ytlvt-menu-main-button {
+  filter: grayscale() contrast(4);
+}
+`;
+  document.head.appendChild(heartToggleStyle);
+
+  function updateDimOpacityCss() {
+    document.documentElement.style.setProperty("--ytlvt-liked-dim-opacity", dimOpacity);
+  }
+
+  function updateBodyToggles() {
+    document.body.classList.toggle("ytlvt-liked-dim", dimLiked);
+    document.body.classList.toggle("ytlvt-liked-hide", hideLiked);
+    document.body.classList.toggle("ytlvt-liked-highlight-title", highlightTitle);
+  }
+
+  // disable hide behavior on the Liked Videos playlist
+  // just a bad idea in general to use hide on the liked playlist
+  function updateHideClass() {
+    const isLikedPlaylist = (location.pathname.includes("/playlist") && location.search.includes("list=LL")) || location.pathname.includes("/feed/playlists");
+    document.body.classList.toggle("ytlvt-liked-hide-disabled", isLikedPlaylist);
+  }
+  document.addEventListener("yt-navigate-finish", () => {
+    updateHideClass();
+    // force process all when a playlist page loads
+    // youtube reuses playlist containers so hearts are not changed when thumbnail and children change
+    if (location.pathname.includes("/playlist")) {
+      if (turboMode) {
+        requestAnimationFrame(processAllVideos);
+      } else {
+        setTimeout(() => {
+          processAllVideos();
+        }, DEBOUNCE_TIMER);
+      }
+    }
+  });
+
+  // autoplay container only gets attribute changes so new node mutation observer doesn't catch it
+  // process all at the end of a video to catch the changes
+  document.addEventListener("yt-autonav-pause-player-ended", () => {
+    requestAnimationFrame(processAllVideos);
+  });
+
+  //*****************************************************************
   // #region VIDEO ID EXTRACTION
   //*****************************************************************
   // containers for dim and hide logic
@@ -74,6 +232,18 @@ if (window.top !== window.self) {
 
   const VIDEO_SELECTOR = VIDEO_CONTAINER.join(",");
 
+  // Get video thumbnail for heart indicator
+  function getThumbnailElement(el) {
+    return (
+      el.querySelector("a#thumbnail") ||
+      el.querySelector("ytd-thumbnail") ||
+      el.querySelector("yt-thumbnail-view-model") ||
+      el.querySelector(".ytp-modern-videowall-still-image") || // endscreen
+      el.querySelector(".ytp-autonav-endscreen-upnext-thumbnail") // autoplay
+    );
+  }
+
+  // helper for getVideoIdFromElement and imports
   function extractVideoId(url) {
     if (typeof url !== "string") return null;
     return (
@@ -178,102 +348,16 @@ if (window.top !== window.self) {
   //*****************************************************************
   // #region HEART BADGE
   //*****************************************************************
-  const HEART_HIDDEN_CLASS = "yt-liked-heart-hidden";
+  const HEART_HIDDEN_CLASS = "ytlvt-liked-heart-hidden";
   const heartMap = new WeakMap(); // maps video element -> heart div
 
-  // CSS rules rely on presence of .yt-liked-indicator via :has()
-  // to dim or hide liked videos at the container level
-  const heartToggleStyle = document.createElement("style");
-  heartToggleStyle.id = "yt-liked";
-  heartToggleStyle.title = "liked videos style";
-  heartToggleStyle.textContent = `
-:root {
-  --yt-liked-dim-opacity: ${dimOpacity};
-}
-
-.yt-liked-heart-hidden { display: none !important; }
-
-/* DIM liked videos - only apply to top-level parents */ 
-body.yt-liked-dim :is(
-  ytd-rich-item-renderer,  /* main, channel videos */
-  ytd-video-renderer, /* search */
-  ytd-grid-video-renderer,  /* channel */
-  ytd-playlist-video-renderer,  /* playlists */
-  ytd-playlist-panel-video-renderer,  /* playlist panel */
-  .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-modern-videowall-still,  /* video end screen */
-  .ytp-autonav-endscreen-upnext-container  /* video autoplay - no need to add to hide */
-):has(.yt-liked-indicator),
-/* Selectors that need :not() */
-body.yt-liked-dim yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
-body.yt-liked-dim ytm-shorts-lockup-view-model-v2:has(.yt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *) {  /* shorts shelf */
-  opacity: var(--yt-liked-dim-opacity);
-}
-
-/* HIDE liked videos - only apply to top-level parents */
-body.yt-liked-hide :is(
-  ytd-rich-item-renderer,  /* main, channel videos */
-  ytd-video-renderer,  /* search */
-  ytd-grid-video-renderer,  /* channel */
-  ytd-playlist-panel-video-renderer,  /* playlist panel */
-  .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-modern-videowall-still  /* video end screen */
-):has(.yt-liked-indicator),
-body.yt-liked-hide yt-lockup-view-model:has(.yt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
-body.yt-liked-hide:not(.yt-liked-hide-disabled) ytd-playlist-video-renderer:has(.yt-liked-indicator),  /* playlists excluding liked videos*/
-body.yt-liked-hide ytm-shorts-lockup-view-model-v2:has(.yt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *),  /* shorts shelf */
-body.yt-liked-hide a.ytp-modern-videowall-still:has(.yt-liked-indicator) {
-  display: none !important;
-}
-
-/* UNDIM dimmed on hover */
-body.yt-liked-dim :is(
-  ytd-rich-item-renderer,
-  yt-lockup-view-model,
-  ytd-video-renderer,
-  ytd-grid-video-renderer,
-  ytd-playlist-video-renderer,
-  ytd-playlist-panel-video-renderer,
-  .ytGridShelfViewModelGridShelfItem,
-  ytm-shorts-lockup-view-model-v2,
-  .ytp-modern-videowall-still,
-  .ytp-autonav-endscreen-upnext-container
-):hover {
-  opacity: 1 !important;
-  transition: opacity 200ms ease-in;
-  transition-delay: 300ms;
-}
-
-/* HIDE menu on fullscreen */
-html:fullscreen #yt-liked-menu,
-html.ytp-fullscreen #yt-liked-menu,
-ytd-app[fullscreen] #yt-liked-menu {
-  display: none !important;
-}
-`;
-  document.head.appendChild(heartToggleStyle);
-
-  function updateDimOpacityCss() {
-    document.documentElement.style.setProperty("--yt-liked-dim-opacity", dimOpacity);
-  }
-
-  // find host video thumbnail for heart
-  function findThumbnailElement(el) {
-    return (
-      el.querySelector("a#thumbnail") ||
-      el.querySelector("ytd-thumbnail") ||
-      el.querySelector("yt-thumbnail-view-model") ||
-      el.querySelector(".ytp-modern-videowall-still-image") || // endscreen
-      el.querySelector(".ytp-autonav-endscreen-upnext-thumbnail") // autoplay
-    );
-  }
   // add a non-interactive heart overlay into the video thumbnail
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
     if (!id || !likedIndex.has(id)) return; // skip unliked videos
-    if (el.querySelector(".yt-liked-indicator")) return; // skip if a heart overlay already exists (prevents duplicates)
+    if (el.querySelector(".ytlvt-liked-indicator")) return; // skip if a heart overlay already exists (prevents duplicates)
 
-    const host = findThumbnailElement(el);
+    const host = getThumbnailElement(el);
     if (!host) return;
 
     if (getComputedStyle(host).position === "static") {
@@ -281,7 +365,7 @@ ytd-app[fullscreen] #yt-liked-menu {
     }
 
     const heart = document.createElement("div");
-    heart.className = "yt-liked-indicator";
+    heart.className = "ytlvt-liked-indicator";
     heart.dataset.id = id;
     heart.textContent = "🤍";
 
@@ -289,7 +373,7 @@ ytd-app[fullscreen] #yt-liked-menu {
       position: "absolute",
       top: "8px",
       right: "8px",
-      background: "#ff0000",
+      background: "red",
       color: "white",
       width: "22px",
       height: "22px",
@@ -314,12 +398,7 @@ ytd-app[fullscreen] #yt-liked-menu {
     if (!id) return;
 
     let heart = heartMap.get(el);
-    // ensure heart exists
-    if (!heart) {
-      addHeart(el);
-      heart = heartMap.get(el);
-      if (!heart) return;
-    }
+
     // if video is NOT liked, remove heart
     if (!likedIndex.has(id)) {
       if (heart) {
@@ -329,41 +408,16 @@ ytd-app[fullscreen] #yt-liked-menu {
       return;
     }
 
+    // ensure heart exists
+    if (!heart) {
+      addHeart(el);
+      heart = heartMap.get(el);
+      if (!heart) return;
+    }
+
     // toggle visibility only
     heart.classList.toggle(HEART_HIDDEN_CLASS, !showHearts);
   }
-
-  function updateBodyToggles() {
-    document.body.classList.toggle("yt-liked-dim", dimLiked);
-    document.body.classList.toggle("yt-liked-hide", hideLiked);
-  }
-
-  // disable hide behavior on the Liked Videos playlist
-  // just a bad idea in general to use hide on the liked playlist
-  function updateHideClass() {
-    const isLikedPlaylist = location.pathname.includes("/playlist") && location.search.includes("list=LL");
-    document.body.classList.toggle("yt-liked-hide-disabled", isLikedPlaylist);
-  }
-  document.addEventListener("yt-navigate-finish", () => {
-    updateHideClass();
-    // force process all when a playlist page loads
-    // youtube reuses playlist containers so hearts are not changed when thumbnail and children change
-    if (location.pathname.includes("/playlist")) {
-      if (turboMode) {
-        requestAnimationFrame(processAllVideos);
-      } else {
-        setTimeout(() => {
-          processAllVideos();
-        }, DEBOUNCE_TIMER);
-      }
-    }
-  });
-
-  // autoplay container only gets attribute changes so new node mutation observer doesn't catch it
-  // process all at the end of a video to catch the changes
-  document.addEventListener("yt-autonav-pause-player-ended", () => {
-    requestAnimationFrame(processAllVideos);
-  });
 
   //*****************************************************************
   // #region PROCESS VIDEOS
@@ -373,6 +427,7 @@ ytd-app[fullscreen] #yt-liked-menu {
       updateHeartDisplay(el);
     });
   }
+
   // debounce calls so the handler runs only after DOM mutations settle
   const debounce = (func, wait) => {
     let timeout;
@@ -411,7 +466,7 @@ ytd-app[fullscreen] #yt-liked-menu {
       }
     : debounce(flushPendingVideosRaw, DEBOUNCE_TIMER);
   // ignore mutations caused by UI (heart overlays / menu)
-  const IGNORED_CLASSES = new Set(["yt-liked-indicator", "yt-liked-menu"]);
+  const IGNORED_CLASSES = new Set(["ytlvt-liked-indicator", "ytlvt-heart-menu"]);
 
   // mutationObserver for newly added nodes
   const observer = new MutationObserver((muts) => {
@@ -449,7 +504,7 @@ ytd-app[fullscreen] #yt-liked-menu {
 
     const textOnlyStyle = document.createElement("style");
     // style breaks if title is added so id only
-    textOnlyStyle.id = "yt-liked-text-mode-scan";
+    textOnlyStyle.id = "ytlvt-text-mode-scan";
     textOnlyStyle.textContent = `
     /* Hide thumbnails */
     ytd-playlist-video-renderer ytd-thumbnail,
@@ -658,10 +713,12 @@ ytd-app[fullscreen] #yt-liked-menu {
   // #region HEART MENU
   //*****************************************************************
   function createMenu() {
-    if (document.getElementById("yt-liked-menu")) return;
+    if (document.getElementById("ytlvt-heart-menu")) return;
+
+    const buttonContainers = new Map();
 
     const menuContainer = document.createElement("div");
-    menuContainer.id = "yt-liked-menu";
+    menuContainer.id = "ytlvt-heart-menu";
     menuContainer.style.cssText = `
         position: fixed;
         bottom: 20px;
@@ -671,62 +728,115 @@ ytd-app[fullscreen] #yt-liked-menu {
         flex-direction: column;
         align-items: flex-end;
         gap: 6px;
+        pointer-events: none;
     `;
     // prettier-ignore
     const menuItems = [
-      { icon: "❤️‍", label: "Show hearts", key: "showHearts", toggle: true, act: () => { showHearts = !showHearts; persistToggle("showHearts", showHearts); } },
-      { icon: "🩵", label: "Dim liked videos", key: "dimLiked", toggle: true, act: () => { dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked); } },
-      { icon: "🩶", label: "Hide liked videos", key: "hideLiked", toggle: true, act: () => { hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked); } },
-      { icon: "💖", label: "Liked playlist scan", act: playlistScan },
+      { icon: "❤️‍", label: "Show hearts", state: () => showHearts, key: "showHearts", toggle: true, act: () => { showHearts = !showHearts; persistToggle("showHearts", showHearts); } },
+      { icon: "🩵", label: "Dim liked videos", state: () => dimLiked, key: "dimLiked", toggle: true, act: () => { dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked); } },
+      { icon: "🩶", label: "Hide liked videos", state: () => hideLiked, key: "hideLiked", toggle: true, act: () => { hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked); } },
+      { icon: "💖", label: "Scan liked playlist ", act: playlistScan },
     ];
     // prettier-ignore
     const optionsItems = [
-      { icon: "💙", label: "Dim opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => { dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss(); } },
-      { icon: "❤️‍🔥", label: "Turbo", key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggleAlert(); } },
+      { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => { highlightTitle = !highlightTitle; persistToggle("highlightTitle", highlightTitle); } },
+      { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => { dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss(); } },
+      { icon: "❤️‍🔥", label: "Turbo", state: () => turboMode, key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggleAlert(); } },
       { icon: "💗", label: "Import", act: openImport },
       { icon: "💞", label: "Export", act: exportLikes },
-      { icon: "💔", label: "Clear liked index", act: clearLikedIndexDoubleConfirm },
+      { icon: "💔", label: "Clear index", act: clearLikedIndexDoubleConfirm },
     ];
 
     const menuButtons = [];
 
     // create menu buttons
     menuItems.forEach((i) => {
-      const b = makeButton(
+      const button = makeButton(
         `${i.label} ${i.icon}`,
         () => {
           i.act();
-          updateButtons();
           updateBodyToggles();
           processAllVideos();
         },
         "#333"
       );
-      b.style.display = "none";
-      menuContainer.appendChild(b);
-      menuButtons.push({ b, i });
+
+      if (i.key) {
+        button.id = `ytlvt-${i.key}-button`;
+      }
+
+      // check state on init and add listener for user click state changes
+      if (i.state) {
+        button.classList.toggle("ytlvt-menu-button-on", i.state());
+        button.addEventListener(`click`, () => {
+          button.classList.toggle("ytlvt-menu-button-on", i.state());
+        });
+      }
+
+      button.style.display = "none";
+
+      const container = document.createElement("div");
+      container.style.cssText = `
+          display: none; 
+          flex-direction: row; 
+          gap: 6px;
+        `;
+      container.className = "ytlvt-menu-button-container";
+      container.appendChild(button);
+
+      buttonContainers.set(i.key, container);
+
+      menuContainer.appendChild(container);
+
+      menuButtons.push({ b: button, i });
     });
 
-    // create options button (inside main menu)
-    const options = makeButton("Options ❤️‍🩹", toggleOptions, "#333");
-    options.style.display = "none"; // hidden until menu opens
-    options.style.position = "relative"; // anchor for submenu
-    menuContainer.appendChild(options);
+    // Main toggle button
+    // prettier-ignore
+    const mainButtonContainer = document.createElement("div");
+    mainButtonContainer.style.cssText = `
+    display: flex; 
+    flex-direction: row; 
+    gap: 6px;
+    `;
+    const mainButton = makeButton("♥️", toggleMenu, "#00bfa5");
+    mainButton.id = "ytlvt-menu-main-button";
+    mainButton.style.cssText = `
+    background: #00bfa5;
+    display: flex;
+    font-size: 1.8rem;
+    width: 2em;
+    aspect-ratio: 1/1;
+    padding: 6px;
+    border:none;
+    border-radius: 50%;
+    justify-content: center;
+    align-content: center;
+    cursor:pointer;
+    box-shadow:0 3px 10px rgba(0,0,0,.35);
+    `;
+    mainButtonContainer.appendChild(mainButton);
+    menuContainer.appendChild(mainButtonContainer);
 
     // options submenu container
     const optionsContainer = document.createElement("div");
+    optionsContainer.id = "ytlvt-menu-options-container"
     optionsContainer.style.cssText = `
         display: flex;
         flex-direction: row;
         gap: 6px;
-        position: absolute;
         bottom: 0;
         right: 100%;
-        margin-right: 6px;
     `;
     optionsContainer.style.display = "none"; // hidden by default
-    options.appendChild(optionsContainer);
-
+    menuContainer.insertBefore(optionsContainer, mainButtonContainer);
+    
+    // create options button (inside main menu)
+    const options = makeButton("Options ❤️‍🩹", toggleOptions, "#333");
+    options.id = "ytlvt-options-button"
+    options.style.display = "none"; // hidden until menu opens
+    options.style.position = "relative"; // anchor for submenu
+    optionsContainer.appendChild(options);
     const optionsButtons = optionsItems.map((i) => {
       if (i.slider) {
         // Create slider input for opacity
@@ -734,15 +844,12 @@ ytd-app[fullscreen] #yt-liked-menu {
         sliderContainer.style.cssText = `
           display: flex;
           align-items: center;
-          position: absolute;
           gap: 6px;
           background: #333;
           color: #fff;
-          border-radius: 14px;
-          padding: 6px 10px;
+          border-radius: 20px;
+          padding: 0px 10px;
           font-size: 12px;
-          bottom: 0px;
-          right: 43px;
         `;
         const label = document.createElement("span");
         label.textContent = `${i.label} ${i.icon}`;
@@ -758,7 +865,7 @@ ytd-app[fullscreen] #yt-liked-menu {
 
         const valueDisplay = document.createElement("span");
         valueDisplay.textContent = `${Math.round(dimOpacity * 100)}%`;
-        valueDisplay.style.cssText = `width: 30px; text-align: right; user-select: none;`;
+        valueDisplay.style.cssText = `width: 24px; user-select: none; text-align: center;`;
 
         slider.addEventListener("input", (e) => {
           dimOpacity = parseFloat(e.target.value);
@@ -771,35 +878,69 @@ ytd-app[fullscreen] #yt-liked-menu {
         sliderContainer.appendChild(valueDisplay);
         sliderContainer.style.display = "none";
         sliderContainer.style.whiteSpace = "nowrap";
-        menuContainer.appendChild(sliderContainer);
+        sliderContainer.id = `ytlvt-${i.key}-button`;
+        buttonContainers.get("dimLiked")?.prepend(sliderContainer);
         return { b: sliderContainer, i };
-      } else {
+
+      } else if (i.key == "turboMode" || i.key == "highlightTitle") {
         const b = makeButton(
           `${i.label} ${i.icon}`,
           () => {
             i.act();
-            updateButtons();
             updateBodyToggles();
             processAllVideos();
           },
           "#333"
         );
+        b.id = `ytlvt-${i.key}-button`;
         b.style.display = "none";
         b.style.whiteSpace = "nowrap";
-        optionsContainer.appendChild(b);
+
+        b.classList.toggle("ytlvt-option-button-on", i.state());
+        b.addEventListener(`click`, () => {
+          b.classList.toggle("ytlvt-option-button-on", i.state());
+        });
+
+        if (i.key == "turboMode") {
+          b.title = "Disable debounce";
+        }
+
+        if (i.key === "highlightTitle") {
+          buttonContainers.get("showHearts")?.prepend(b);
+        } else {
+          optionsContainer.prepend(b);
+        }
+        return { b, i };
+
+      } else {
+        const b = makeButton(
+          `${i.label} ${i.icon}`,
+          () => {
+            i.act();
+            updateBodyToggles();
+            processAllVideos();
+          },
+          "#009783ff"
+        );
+        b.style.display = "none";
+        b.style.whiteSpace = "nowrap";
+        b.style.fontSize = "16px";
+
+        mainButtonContainer.insertBefore(b, mainButton);
         return { b, i };
       }
     });
 
-    // Main toggle button
-    const menuToggleButton = makeButton("♥️", toggleMenu, "#00bfa5");
-    menuToggleButton.title = "Liked Video Controls";
-    menuContainer.appendChild(menuToggleButton);
-    menuToggleButton.style.padding = "6px";
-    menuToggleButton.style.fontSize = "18px";
-    menuToggleButton.style.borderRadius = "50%";
-
     document.body.appendChild(menuContainer);
+
+    // Re-enable pointer events on interactive elements
+    menuContainer.querySelectorAll("button, input").forEach((el) => {
+      el.style.pointerEvents = "auto";
+    });
+    // Re-enable for containers that need to be interactive
+    menuContainer.querySelectorAll(".ytlvt-menu-button-container, #ytlvt-heart-menu > div").forEach((el) => {
+      el.style.pointerEvents = "auto";
+    });
 
     // Prevent submenu clicks from closing the menu
     options.addEventListener("click", (e) => {
@@ -813,10 +954,17 @@ ytd-app[fullscreen] #yt-liked-menu {
     function toggleMenu() {
       const open = menuButtons[0].b.style.display === "block";
       menuButtons.forEach((x) => (x.b.style.display = open ? "none" : "block"));
-      options.style.display = open ? "none" : "block";
+      
+      // Hide/show menu button containers
+      document.querySelectorAll(".ytlvt-menu-button-container").forEach((el) => {
+        el.style.display = open ? "none" : "flex";
+      });
+
+      options.style.display = open ? "none" : "flex";
+      optionsContainer.style.display = open ? "none" : "flex";
+      
       if (open) {
         optionsButtons.forEach((x) => (x.b.style.display = "none"));
-        optionsContainer.style.display = "none";
       }
     }
 
@@ -827,40 +975,6 @@ ytd-app[fullscreen] #yt-liked-menu {
         const display = x.i.slider ? "flex" : "block";
         x.b.style.display = open ? "none" : display;
       });
-      optionsContainer.style.display = open ? "none" : "flex";
-    }
-
-    function updateButtons() {
-      [...menuButtons, ...optionsButtons].forEach(({ b, i }) => {
-        if (!i.toggle || !i.key) return;
-        let on = false;
-        switch (i.key) {
-          case "hideLiked":
-            on = hideLiked;
-            break;
-          case "dimLiked":
-            on = dimLiked;
-            break;
-          case "showHearts":
-            on = showHearts;
-            break;
-          case "turboMode":
-            on = turboMode;
-            break;
-        }
-
-        // normal buttons
-        b.style.background = on ? "#d32f2f" : "#333";
-        b.style.fontWeight = on ? "bold" : "normal";
-
-        // specifically change the Turbo Mode button color
-        if (i.key === "turboMode") {
-          b.style.background = on ? "#395ebdff" : "#333";
-        }
-      });
-
-      // change the options button if turbo is on
-      options.style.background = turboMode ? "#395ebdff" : "#333";
     }
 
     function openImport() {
@@ -872,6 +986,7 @@ ytd-app[fullscreen] #yt-liked-menu {
       f.click();
     }
 
+    // close menu when user clicks outside it
     document.addEventListener(
       "click",
       (e) => {
@@ -879,6 +994,9 @@ ytd-app[fullscreen] #yt-liked-menu {
           !menuContainer.contains(e.target) ||
           e.target.closest("yt-chip-cloud-chip-renderer, tp-yt-paper-tab, ytd-searchbox")
         ) {
+          document.querySelectorAll(".ytlvt-menu-button-container").forEach((el) => {
+            el.style.display = "none";
+          });
           menuButtons.forEach((x) => (x.b.style.display = "none"));
           options.style.display = "none";
           optionsButtons.forEach((x) => (x.b.style.display = "none"));
@@ -887,17 +1005,19 @@ ytd-app[fullscreen] #yt-liked-menu {
       },
       true
     );
-
+    
+    // close menu on escape key press
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        document.querySelectorAll(".ytlvt-menu-button-container").forEach((el) => {
+          el.style.display = "none";
+        });
         menuButtons.forEach((x) => (x.b.style.display = "none"));
         options.style.display = "none";
         optionsButtons.forEach((x) => (x.b.style.display = "none"));
         optionsContainer.style.display = "none";
       }
     });
-
-    updateButtons();
   }
 
   function makeButton(text, fn, bg) {
@@ -909,7 +1029,7 @@ ytd-app[fullscreen] #yt-liked-menu {
         background:${bg};
         color:#fff;
         border:none;
-        border-radius:14px;
+        border-radius:20px;
         padding:7px 10px;
         font-size:12px;
         cursor:pointer;
