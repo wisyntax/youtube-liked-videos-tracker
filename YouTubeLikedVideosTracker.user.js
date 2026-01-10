@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    Violentmonkey Scripts
-// @version      2.1
+// @version      2.2
 // @description  Adds hearts to liked videos, with options to dim or hide them.
-// @author       arkWish
+// @author       johnvibecode
 // @match        *://www.youtube.com/*
-// @icon         data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20style%3D%22dominant-baseline%3Amiddle%3Btext-anchor%3Amiddle%3Bfont-size%3A80px%3B%22%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E
+// @icon         data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2300bfa5'/%3E%3Cg transform='translate(16, 16) scale(0.65) translate(-16, -16)'%3E%3Cpath d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addValueChangeListener
@@ -24,12 +24,14 @@ if (window.top !== window.self) {
   //*****************************************************************
   let likedIndex = new Set(GM_getValue("likedIndex", []));
   let showHearts = GM_getValue("showHearts", true);
-  let dimLiked = GM_getValue("dimLiked", false);
+  let dimLiked = GM_getValue("dimLiked", true);
   let hideLiked = GM_getValue("hideLiked", false);
   let highlightTitle = GM_getValue("highlightTitle", false);
   let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
   const DEBOUNCE_TIMER = 250;
+  const HEART_SVG =
+    "<svg viewBox='-4 0 40 32' xmlns='http://www.w3.org/2000/svg' style='width:18px;aspect-ratio:1/1;scale:1.5;'><path d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill=''/></svg>";
 
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
   const persistToggle = (k, v) => GM_setValue(k, v);
@@ -53,7 +55,7 @@ if (window.top !== window.self) {
 
   function turboToggleAlert() {
     const mode = turboMode ? "ENABLED" : "DISABLED";
-    if (confirm(`Turbo mode ${mode}\n\nReload now to apply now?`)) {
+    if (confirm(`Quick mode ${mode}\n\nReload to apply now?`)) {
       location.reload();
     }
   }
@@ -64,8 +66,8 @@ if (window.top !== window.self) {
   // CSS rules rely on presence of .ytlvt-liked-indicator via :has()
   // to dim or hide liked videos at the container level
   const heartToggleStyle = document.createElement("style");
-  heartToggleStyle.id = "ytlvt-liked";
-  heartToggleStyle.title = "liked videos style";
+  heartToggleStyle.id = "ytlvt-style";
+  heartToggleStyle.title = "YouTube Liked Videos Tracker Style";
   heartToggleStyle.textContent = `
 :root {
   --ytlvt-liked-dim-opacity: ${dimOpacity};
@@ -151,6 +153,9 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   display: none !important;
 }
 
+
+/*--- menu-button changes ---*/
+
 /* menu button style on toggle */
 .ytlvt-menu-button-on {
   background: #d32f2f !important;
@@ -161,18 +166,75 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 .ytlvt-option-button-on {
   background: #395ebdff !important;
 }
-.ytlvt-menu-button-container:has(#ytlvt-dimLiked-button.ytlvt-menu-button-on) #ytlvt-dimOpacity-button {
+
+/* opacity slider change when dim enabled */
+#ytlvt-heart-menu:has(.dimLiked-on) #ytlvt-dimOpacity-button {
   background: #395ebdff !important;
   accent-color: #d32f2f;
 }
-/* option toggle button style change */
-#ytlvt-menu-options-container:has(#ytlvt-turboMode-button.ytlvt-option-button-on) #ytlvt-options-button {
+
+/* option toggle button style change when turbo enabled */
+#ytlvt-heart-menu:has(.turboMode-on) #ytlvt-options-button {
   background: #395ebdff !important;
 }
 
-/* greyout main button when no toggle */
+/* greyout highlight Title when showHearts not on  */
+#ytlvt-heart-menu:not(:has(.showHearts-on)):not(:has(.hideLiked-on)) #ytlvt-highlightTitle-button {
+  filter: sepia() 
+}
+
+/* greyout opacity when dimLiked not on  */
+#ytlvt-heart-menu:not(:has(.dimLiked-on)):not(:has(.hideLiked-on)) #ytlvt-dimOpacity-button {
+  filter: sepia() 
+}
+
+/* greyout every other menu button when hide button enabled*/
+body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) .ytlvt-menu-button-container:not(:has(.hideLiked-on)) {
+  filter: sepia() 
+}
+
+/* greyout hide button when disabled */
+body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
+  filter: sepia() 
+}
+
+
+/*--- menu main-button change on toggles ---*/
+
+/* showHearts main heart change */
+#ytlvt-heart-menu:has(.showHearts-on) #ytlvt-menu-main-button {
+ fill: red !important;
+}
+
+/* highlightTitle main heart change */
+#ytlvt-heart-menu:has(.highlightTitle-on):has(.showHearts-on) #ytlvt-menu-main-button svg {
+  stroke: yellow;
+  stroke-width: 6px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+
+/* dimLiked main heart dim */
+#ytlvt-heart-menu:has(.dimLiked-on) #ytlvt-menu-main-button {
+  opacity: 80%;
+}
+
+/* hideLiked main heart hide */
+body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt-menu-main-button {
+  opacity: 65%;
+  background: #0000 !important;
+  fill: #0000 !important;
+  outline: 3px dashed red;
+  outline-offset: -3px;
+}
+body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt-menu-main-button svg {
+display: none !important;
+}
+
+/* main button greyout when no toggle */
 #ytlvt-heart-menu:not(:has(.ytlvt-menu-button-on)) #ytlvt-menu-main-button {
   filter: grayscale() contrast(4);
+  fill: #000 !important;
 }
 `;
   document.head.appendChild(heartToggleStyle);
@@ -190,7 +252,9 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   // disable hide behavior on the Liked Videos playlist
   // just a bad idea in general to use hide on the liked playlist
   function updateHideClass() {
-    const isLikedPlaylist = (location.pathname.includes("/playlist") && location.search.includes("list=LL")) || location.pathname.includes("/feed/playlists");
+    const isLikedPlaylist =
+      (location.pathname.includes("/playlist") && location.search.includes("list=LL")) ||
+      location.pathname.includes("/feed/playlists");
     document.body.classList.toggle("ytlvt-liked-hide-disabled", isLikedPlaylist);
   }
   document.addEventListener("yt-navigate-finish", () => {
@@ -379,9 +443,9 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
       height: "22px",
       borderRadius: "50%",
       display: "flex",
-      alignItems: "center",
       justifyContent: "center",
-      fontSize: "10px",
+      alignItems: "center",
+      fontSize: "12px",
       zIndex: "20",
       pointerEvents: "none",
       boxShadow: "0 2px 8px rgba(0,0,0,.4)",
@@ -741,7 +805,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
     const optionsItems = [
       { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => { highlightTitle = !highlightTitle; persistToggle("highlightTitle", highlightTitle); } },
       { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => { dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss(); } },
-      { icon: "❤️‍🔥", label: "Turbo", state: () => turboMode, key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggleAlert(); } },
+      { icon: "❤️‍🔥", label: "Quick", state: () => turboMode, key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggleAlert(); } },
       { icon: "💗", label: "Import", act: openImport },
       { icon: "💞", label: "Export", act: exportLikes },
       { icon: "💔", label: "Clear index", act: clearLikedIndexDoubleConfirm },
@@ -765,11 +829,13 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
         button.id = `ytlvt-${i.key}-button`;
       }
 
-      // check state on init and add listener for user click state changes
+      // check state on init and add listener for user toggle
       if (i.state) {
         button.classList.toggle("ytlvt-menu-button-on", i.state());
+        button.classList.toggle(`${i.key}-on`, i.state());
         button.addEventListener(`click`, () => {
           button.classList.toggle("ytlvt-menu-button-on", i.state());
+          button.classList.toggle(`${i.key}-on`, i.state());
         });
       }
 
@@ -792,35 +858,36 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
     });
 
     // Main toggle button
-    // prettier-ignore
     const mainButtonContainer = document.createElement("div");
     mainButtonContainer.style.cssText = `
     display: flex; 
     flex-direction: row; 
     gap: 6px;
     `;
-    const mainButton = makeButton("♥️", toggleMenu, "#00bfa5");
+    const mainButton = makeButton(HEART_SVG, toggleMenu, "#00bfa5");
     mainButton.id = "ytlvt-menu-main-button";
     mainButton.style.cssText = `
     background: #00bfa5;
     display: flex;
-    font-size: 1.8rem;
-    width: 2em;
+    font-size: 18px;
+    width: 36px;
     aspect-ratio: 1/1;
-    padding: 6px;
+    padding: 5.5px;
     border:none;
     border-radius: 50%;
     justify-content: center;
     align-content: center;
     cursor:pointer;
     box-shadow:0 3px 10px rgba(0,0,0,.35);
+    fill: white;
+    overflow: clip;
     `;
     mainButtonContainer.appendChild(mainButton);
     menuContainer.appendChild(mainButtonContainer);
 
     // options submenu container
     const optionsContainer = document.createElement("div");
-    optionsContainer.id = "ytlvt-menu-options-container"
+    optionsContainer.id = "ytlvt-menu-options-container";
     optionsContainer.style.cssText = `
         display: flex;
         flex-direction: row;
@@ -830,10 +897,10 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
     `;
     optionsContainer.style.display = "none"; // hidden by default
     menuContainer.insertBefore(optionsContainer, mainButtonContainer);
-    
+
     // create options button (inside main menu)
     const options = makeButton("Options ❤️‍🩹", toggleOptions, "#333");
-    options.id = "ytlvt-options-button"
+    options.id = "ytlvt-options-button";
     options.style.display = "none"; // hidden until menu opens
     options.style.position = "relative"; // anchor for submenu
     optionsContainer.appendChild(options);
@@ -850,6 +917,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
           border-radius: 20px;
           padding: 0px 10px;
           font-size: 12px;
+          box-shadow:0 3px 10px rgba(0,0,0,.35);
         `;
         const label = document.createElement("span");
         label.textContent = `${i.label} ${i.icon}`;
@@ -881,7 +949,6 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
         sliderContainer.id = `ytlvt-${i.key}-button`;
         buttonContainers.get("dimLiked")?.prepend(sliderContainer);
         return { b: sliderContainer, i };
-
       } else if (i.key == "turboMode" || i.key == "highlightTitle") {
         const b = makeButton(
           `${i.label} ${i.icon}`,
@@ -897,8 +964,10 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
         b.style.whiteSpace = "nowrap";
 
         b.classList.toggle("ytlvt-option-button-on", i.state());
+        b.classList.toggle(`${i.key}-on`, i.state());
         b.addEventListener(`click`, () => {
           b.classList.toggle("ytlvt-option-button-on", i.state());
+          b.classList.toggle(`${i.key}-on`, i.state());
         });
 
         if (i.key == "turboMode") {
@@ -911,7 +980,6 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
           optionsContainer.prepend(b);
         }
         return { b, i };
-
       } else {
         const b = makeButton(
           `${i.label} ${i.icon}`,
@@ -954,7 +1022,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
     function toggleMenu() {
       const open = menuButtons[0].b.style.display === "block";
       menuButtons.forEach((x) => (x.b.style.display = open ? "none" : "block"));
-      
+
       // Hide/show menu button containers
       document.querySelectorAll(".ytlvt-menu-button-container").forEach((el) => {
         el.style.display = open ? "none" : "flex";
@@ -962,7 +1030,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 
       options.style.display = open ? "none" : "flex";
       optionsContainer.style.display = open ? "none" : "flex";
-      
+
       if (open) {
         optionsButtons.forEach((x) => (x.b.style.display = "none"));
       }
@@ -1005,7 +1073,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
       },
       true
     );
-    
+
     // close menu on escape key press
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -1023,7 +1091,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   function makeButton(text, fn, bg) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = text;
+    b.innerHTML = text;
     b.onclick = fn;
     b.style.cssText = `
         background:${bg};
