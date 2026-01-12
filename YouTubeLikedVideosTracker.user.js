@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    Violentmonkey Scripts
-// @version      2.2
+// @version      2.3
 // @description  Adds hearts to liked videos, with options to dim or hide them.
 // @author       johnvibecode
 // @match        *://www.youtube.com/*
@@ -156,13 +156,13 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 
 /*--- menu-button changes ---*/
 
-/* menu button style on toggle */
+/* menu button style when toggled */
 .ytlvt-menu-button-on {
   background: #d32f2f !important;
   font-weight: bold;
 }
 
-/* option button style on toggle */
+/* option button style when toggled */
 .ytlvt-option-button-on {
   background: #395ebdff !important;
 }
@@ -178,7 +178,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   background: #395ebdff !important;
 }
 
-/* greyout highlight Title when showHearts not on  */
+/* greyout highlightTitle when showHearts not on  */
 #ytlvt-heart-menu:not(:has(.showHearts-on)):not(:has(.hideLiked-on)) #ytlvt-highlightTitle-button {
   filter: sepia() 
 }
@@ -196,6 +196,22 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) .ytlvt
 /* greyout hide button when disabled */
 body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
   filter: sepia() 
+}
+
+/* light up buttons on hover */
+#ytlvt-heart-menu button::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  backdrop-filter: brightness(1.2) contrast(1.1); 
+  opacity: 0;
+  pointer-events: none; 
+}
+#ytlvt-heart-menu button:hover::after {
+  opacity: 1;
 }
 
 
@@ -250,17 +266,17 @@ display: none !important;
   }
 
   // disable hide behavior on the Liked Videos playlist
-  // just a bad idea in general to use hide on the liked playlist
   function updateHideClass() {
     const isLikedPlaylist =
       (location.pathname.includes("/playlist") && location.search.includes("list=LL")) ||
       location.pathname.includes("/feed/playlists");
     document.body.classList.toggle("ytlvt-liked-hide-disabled", isLikedPlaylist);
   }
+
+  // youtube sometimes reuses containers or only change attributes of nodes
+  // so re-process all if new page or chip filters clicked
   document.addEventListener("yt-navigate-finish", () => {
     updateHideClass();
-    // force process all when a playlist page loads
-    // youtube reuses playlist containers so hearts are not changed when thumbnail and children change
     if (location.pathname.includes("/playlist")) {
       if (turboMode) {
         requestAnimationFrame(processAllVideos);
@@ -271,6 +287,19 @@ display: none !important;
       }
     }
   });
+  document.addEventListener(
+    "yt-reload-continuation-finish", // chip filter event
+    () => {
+      if (turboMode) {
+        requestAnimationFrame(processAllVideos);
+      } else {
+        setTimeout(() => {
+          processAllVideos();
+        }, DEBOUNCE_TIMER);
+      }
+    },
+    true
+  );
 
   // autoplay container only gets attribute changes so new node mutation observer doesn't catch it
   // process all at the end of a video to catch the changes
@@ -379,7 +408,7 @@ display: none !important;
         const ID = getIdFn();
         if (!ID) return;
 
-        const btn = btnHost.querySelector("button[aria-pressed]");
+        const btn = btnHost.querySelector("like-button-view-model button[aria-pressed]");
         if (!btn) return;
 
         setTimeout(() => {
@@ -394,15 +423,17 @@ display: none !important;
 
   // Watch / fullscreen / shorts
   listenLikes("segmented-like-dislike-button-view-model", getCurrentVideoId, "[Watch]");
-  listenLikes(".ytp-fullscreen-quick-actions", getCurrentVideoId, "[Watch Fullscreen]");
-  listenLikes("like-button-view-model", getCurrentShortId, "[Shorts]");
+  listenLikes("yt-player-quick-action-buttons", getCurrentVideoId, "[Watch Fullscreen]");
+  listenLikes("reel-action-bar-view-model", getCurrentShortId, "[Shorts]");
 
   // SPA navigation: sync initial watch video like
   document.addEventListener("yt-navigate-finish", () => {
     setTimeout(() => {
       const videoId = getCurrentVideoId();
       if (!videoId) return;
-      const btn = document.querySelector("segmented-like-dislike-button-view-model button[aria-pressed]");
+      const btn = document.querySelector(
+        "segmented-like-dislike-button-view-model like-button-view-model button[aria-pressed]"
+      );
       if (!btn) return;
       const isLiked = btn.getAttribute("aria-pressed") === "true";
       updateLiked(videoId, isLiked, "[Watch SPA]");
@@ -591,6 +622,17 @@ display: none !important;
 
     const startUrl = location.href;
 
+    const navGuard = () => {
+      if (location.href !== startUrl) {
+        alert("Scan aborted - page navigated");
+        setTimeout(() => {
+          textOnlyStyle.remove();
+        }, 5000);
+        return true;
+      }
+      return false;
+    };
+
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
     let lastCount = 0;
@@ -600,13 +642,7 @@ display: none !important;
     // - video count stops increasing for several rounds
     // - OR user-defined max is reached
     while (true) {
-      if (location.href !== startUrl) {
-        alert("Scan aborted - page navigated");
-        setTimeout(() => {
-          textOnlyStyle.remove();
-        }, 5000);
-        return;
-      }
+      if (navGuard()) return;
 
       const vids = document.querySelectorAll("ytd-playlist-video-renderer").length;
       if (vids === lastCount) {
@@ -622,6 +658,7 @@ display: none !important;
       window.scrollTo(0, document.documentElement.scrollHeight);
       await delay(1500); // loop delay: lower delay scrolls faster but also ends faster
     }
+    if (navGuard()) return;
 
     // Scan loaded videos
     const els = document.querySelectorAll("ytd-playlist-video-renderer");
@@ -645,7 +682,7 @@ display: none !important;
     persistIndex(index);
     setTimeout(() => {
       processAllVideos();
-      alert(`Playlist scan complete\nScanned: ${scanned}\nAdded: ${added}`);
+      alert(`Playlist scan complete\nScanned: ${scanned.toLocaleString()}\nAdded: ${added.toLocaleString()}`);
       setTimeout(() => {
         textOnlyStyle.remove();
       }, 1000);
@@ -689,7 +726,7 @@ display: none !important;
     likedIndex = index;
     persistIndex(index);
     processAllVideos();
-    alert(`Imported ${added} liked videos (${type})`);
+    alert(`Imported ${added.toLocaleString()} liked videos (${type})`);
   }
 
   // CSV import
@@ -717,7 +754,7 @@ display: none !important;
     likedIndex = index;
     persistIndex(index);
     processAllVideos();
-    alert(`Imported ${added} liked videos`);
+    alert(`Imported ${added.toLocaleString()} liked videos`);
   }
   // should probably never touch this
   const parseCsvLine = (l) => {
@@ -753,7 +790,7 @@ display: none !important;
     const b = new Blob([JSON.stringify([...loadIndexFromStorage()], null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
-    a.download = `liked_videos_${dateStr}.json`;
+    a.download = `ytlvt_liked_index_${dateStr}.json`;
     a.click();
   }
 
@@ -881,6 +918,7 @@ display: none !important;
     box-shadow:0 3px 10px rgba(0,0,0,.35);
     fill: white;
     overflow: clip;
+    position: relative;
     `;
     mainButtonContainer.appendChild(mainButton);
     menuContainer.appendChild(mainButtonContainer);
@@ -1102,6 +1140,8 @@ display: none !important;
         font-size:12px;
         cursor:pointer;
         box-shadow:0 3px 10px rgba(0,0,0,.35);
+        overflow: clip;
+        position: relative;
     `;
     return b;
   }
