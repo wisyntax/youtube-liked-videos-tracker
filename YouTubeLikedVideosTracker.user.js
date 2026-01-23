@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    Violentmonkey Scripts
-// @version      2.3
+// @version      2.4
 // @description  Adds hearts to liked videos, with options to dim or hide them.
-// @author       johnvibecode
+// @author       wisyntax
 // @match        *://www.youtube.com/*
 // @icon         data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2300bfa5'/%3E%3Cg transform='translate(16, 16) scale(0.65) translate(-16, -16)'%3E%3Cpath d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E
 // @grant        GM_getValue
@@ -27,10 +27,12 @@ if (window.top !== window.self) {
   let dimLiked = GM_getValue("dimLiked", true);
   let hideLiked = GM_getValue("hideLiked", false);
   let highlightTitle = GM_getValue("highlightTitle", false);
+  let titleColor = GM_getValue("titleColor", "#ff0000");
   let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
+
   const DEBOUNCE_TIMER = 250;
-  const HEART_SVG =
+  const HEART_SVG = // unused after chrome trusted type fix but leaving incase for future use
     "<svg viewBox='-4 0 40 32' xmlns='http://www.w3.org/2000/svg' style='width:18px;aspect-ratio:1/1;scale:1.5;'><path d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill=''/></svg>";
 
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
@@ -70,6 +72,7 @@ if (window.top !== window.self) {
   heartToggleStyle.title = "YouTube Liked Videos Tracker Style";
   heartToggleStyle.textContent = `
 :root {
+  --ytlvt-liked-title-color: ${titleColor};
   --ytlvt-liked-dim-opacity: ${dimOpacity};
 }
 
@@ -141,9 +144,10 @@ body.ytlvt-liked-highlight-title :is(
 ):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
   .yt-lockup-metadata-view-model__title,
   .ytp-modern-videowall-still-info-title,
+  .ytp-autonav-endscreen-upnext-title,
   #video-title
 ) {
-  color: red !important;
+  color: var(--ytlvt-liked-title-color) !important;
 }
 
 /* HIDE menu on fullscreen */
@@ -167,6 +171,11 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   background: #395ebdff !important;
 }
 
+/* hide colorPicker when highlightTitle not on  */
+#ytlvt-highlightTitle-button:not(.highlightTitle-on) #ytlvt-titleColor-button {
+  display: none
+}
+
 /* opacity slider change when dim enabled */
 #ytlvt-heart-menu:has(.dimLiked-on) #ytlvt-dimOpacity-button {
   background: #395ebdff !important;
@@ -179,12 +188,14 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 }
 
 /* greyout highlightTitle when showHearts not on  */
-#ytlvt-heart-menu:not(:has(.showHearts-on)):not(:has(.hideLiked-on)) #ytlvt-highlightTitle-button {
+#ytlvt-heart-menu:not(:has(.showHearts-on)):not(:has(.hideLiked-on)) #ytlvt-highlightTitle-button,
+.ytlvt-liked-hide-disabled #ytlvt-heart-menu:not(:has(.showHearts-on)):has(.hideLiked-on) #ytlvt-highlightTitle-button{
   filter: sepia() 
 }
 
 /* greyout opacity when dimLiked not on  */
-#ytlvt-heart-menu:not(:has(.dimLiked-on)):not(:has(.hideLiked-on)) #ytlvt-dimOpacity-button {
+#ytlvt-heart-menu:not(:has(.dimLiked-on)):not(:has(.hideLiked-on)) #ytlvt-dimOpacity-button,
+.ytlvt-liked-hide-disabled #ytlvt-heart-menu:not(:has(.dimLiked-on)):has(.hideLiked-on) #ytlvt-dimOpacity-button{
   filter: sepia() 
 }
 
@@ -214,8 +225,19 @@ body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
   opacity: 1;
 }
 
+/* titleColor button appearance fix */
+#ytlvt-titleColor-button {
+  -webkit-appearance: none;
+}
+#ytlvt-titleColor-button::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+#ytlvt-titleColor-button::-webkit-color-swatch {
+  border: none;
+}
 
-/*--- menu main-button change on toggles ---*/
+
+/*--- menu MAIN-button change on toggles ---*/
 
 /* showHearts main heart change */
 #ytlvt-heart-menu:has(.showHearts-on) #ytlvt-menu-main-button {
@@ -255,6 +277,10 @@ display: none !important;
 `;
   document.head.appendChild(heartToggleStyle);
 
+  function updateTitleColorCss() {
+    document.documentElement.style.setProperty("--ytlvt-liked-title-color", titleColor);
+  }
+
   function updateDimOpacityCss() {
     document.documentElement.style.setProperty("--ytlvt-liked-dim-opacity", dimOpacity);
   }
@@ -277,29 +303,7 @@ display: none !important;
   // so re-process all if new page or chip filters clicked
   document.addEventListener("yt-navigate-finish", () => {
     updateHideClass();
-    if (location.pathname.includes("/playlist")) {
-      if (turboMode) {
-        requestAnimationFrame(processAllVideos);
-      } else {
-        setTimeout(() => {
-          processAllVideos();
-        }, DEBOUNCE_TIMER);
-      }
-    }
   });
-  document.addEventListener(
-    "yt-reload-continuation-finish", // chip filter event
-    () => {
-      if (turboMode) {
-        requestAnimationFrame(processAllVideos);
-      } else {
-        setTimeout(() => {
-          processAllVideos();
-        }, DEBOUNCE_TIMER);
-      }
-    },
-    true
-  );
 
   // autoplay container only gets attribute changes so new node mutation observer doesn't catch it
   // process all at the end of a video to catch the changes
@@ -417,7 +421,7 @@ display: none !important;
           processAllVideos();
         }, 0);
       },
-      true
+      true,
     );
   }
 
@@ -432,7 +436,7 @@ display: none !important;
       const videoId = getCurrentVideoId();
       if (!videoId) return;
       const btn = document.querySelector(
-        "segmented-like-dislike-button-view-model like-button-view-model button[aria-pressed]"
+        "segmented-like-dislike-button-view-model like-button-view-model button[aria-pressed]",
       );
       if (!btn) return;
       const isLiked = btn.getAttribute("aria-pressed") === "true";
@@ -479,6 +483,7 @@ display: none !important;
       fontSize: "12px",
       zIndex: "20",
       pointerEvents: "none",
+      userSelect: "none",
       boxShadow: "0 2px 8px rgba(0,0,0,.4)",
     });
 
@@ -549,8 +554,9 @@ display: none !important;
 
   let rafScheduled = false;
 
-  const flushPendingVideos = turboMode
-    ? () => {
+  const flushPendingVideos =
+    turboMode ?
+      () => {
         if (rafScheduled) return;
         rafScheduled = true;
 
@@ -563,26 +569,52 @@ display: none !important;
   // ignore mutations caused by UI (heart overlays / menu)
   const IGNORED_CLASSES = new Set(["ytlvt-liked-indicator", "ytlvt-heart-menu"]);
 
-  // mutationObserver for newly added nodes
+  // mutationObserver for newly added nodes and href changes
   const observer = new MutationObserver((muts) => {
-    muts.forEach((m) => {
-      m.addedNodes.forEach((n) => {
-        if (!(n instanceof HTMLElement)) return;
-        // Skip if it's an ignored element
-        if (n.classList && Array.from(n.classList).some((c) => IGNORED_CLASSES.has(c))) return;
+    const nodesToProcess = new Set();
 
-        if (n.matches?.(VIDEO_SELECTOR)) {
-          videosToProcess.add(n);
-        } else {
-          n.querySelectorAll?.(VIDEO_SELECTOR).forEach((el) => videosToProcess.add(el));
+    muts.forEach((m) => {
+      // Handle added nodes
+      if (m.type === "childList") {
+        m.addedNodes.forEach((n) => {
+          if (!(n instanceof HTMLElement)) return;
+          // Skip if it's an ignored element
+          if (n.classList && Array.from(n.classList).some((c) => IGNORED_CLASSES.has(c))) return;
+
+          if (n.matches?.(VIDEO_SELECTOR)) {
+            nodesToProcess.add(n);
+          } else {
+            n.querySelectorAll?.(VIDEO_SELECTOR).forEach((el) => nodesToProcess.add(el));
+          }
+        });
+      }
+
+      // Handle href attribute changes on thumbnail links
+      if (m.type === "attributes" && m.attributeName === "href") {
+        if (m.target instanceof HTMLElement && m.target.id === "thumbnail") {
+          // Find the parent video container
+          const videoContainer = m.target.closest(VIDEO_SELECTOR);
+          if (videoContainer) {
+            nodesToProcess.add(videoContainer);
+          }
         }
-      });
+      }
     });
 
-    flushPendingVideos();
+    if (nodesToProcess.size > 0) {
+      videosToProcess.forEach((el) => nodesToProcess.add(el));
+      videosToProcess.clear();
+      nodesToProcess.forEach((el) => videosToProcess.add(el));
+      flushPendingVideos();
+    }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["href"],
+  });
 
   //*****************************************************************
   // #region PLAYLIST SCAN
@@ -590,7 +622,7 @@ display: none !important;
   async function playlistScan() {
     if (!location.pathname.includes("/playlist") || !location.search.includes("list=LL")) {
       return alert(
-        "Playlist scan only works on your Liked videos playlist:\nwww.youtube.com/playlist?list=LL"
+        "Playlist scan only works on your Liked videos playlist:\nwww.youtube.com/playlist?list=LL",
       );
     }
 
@@ -798,7 +830,7 @@ display: none !important;
   function clearLikedIndexDoubleConfirm() {
     const total = likedIndex.size;
 
-    if (!confirm(`⚠️ Permanently delete ${total.toLocaleString()} videos from index?`)) return;
+    if (!confirm(`⚠️ Permanently delete ${total.toLocaleString()} videos from script index?`)) return;
 
     const typed = prompt("Type CLEAR (all caps) to confirm:");
     if (typed !== "CLEAR") return alert("Aborted.");
@@ -859,7 +891,7 @@ display: none !important;
           updateBodyToggles();
           processAllVideos();
         },
-        "#333"
+        "#333",
       );
 
       if (i.key) {
@@ -901,8 +933,24 @@ display: none !important;
     flex-direction: row; 
     gap: 6px;
     `;
-    const mainButton = makeButton(HEART_SVG, toggleMenu, "#00bfa5");
+    const mainButton = document.createElement("button");
     mainButton.id = "ytlvt-menu-main-button";
+    mainButton.type = "button";
+    mainButton.onclick = toggleMenu;
+    // Create SVG directly cause youtube uses Trusted Types
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "-4 0 40 32");
+    svg.style.cssText = "width:18px;aspect-ratio:1/1;scale:1.5;";
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      "M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z",
+    );
+    path.setAttribute("fill", "");
+
+    svg.appendChild(path);
+    mainButton.appendChild(svg);
     mainButton.style.cssText = `
     background: #00bfa5;
     display: flex;
@@ -919,7 +967,7 @@ display: none !important;
     fill: white;
     overflow: clip;
     position: relative;
-    `;
+`;
     mainButtonContainer.appendChild(mainButton);
     menuContainer.appendChild(mainButtonContainer);
 
@@ -947,7 +995,7 @@ display: none !important;
         // Create slider input for opacity
         const sliderContainer = document.createElement("div");
         sliderContainer.style.cssText = `
-          display: flex;
+          display: none;
           align-items: center;
           gap: 6px;
           background: #333;
@@ -956,6 +1004,7 @@ display: none !important;
           padding: 0px 10px;
           font-size: 12px;
           box-shadow:0 3px 10px rgba(0,0,0,.35);
+          white-space: nowrap;
         `;
         const label = document.createElement("span");
         label.textContent = `${i.label} ${i.icon}`;
@@ -982,22 +1031,19 @@ display: none !important;
         sliderContainer.appendChild(label);
         sliderContainer.appendChild(slider);
         sliderContainer.appendChild(valueDisplay);
-        sliderContainer.style.display = "none";
-        sliderContainer.style.whiteSpace = "nowrap";
         sliderContainer.id = `ytlvt-${i.key}-button`;
         buttonContainers.get("dimLiked")?.prepend(sliderContainer);
         return { b: sliderContainer, i };
-      } else if (i.key == "turboMode" || i.key == "highlightTitle") {
+      } else if (i.key == "turboMode") {
         const b = makeButton(
           `${i.label} ${i.icon}`,
           () => {
             i.act();
-            updateBodyToggles();
-            processAllVideos();
           },
-          "#333"
+          "#333",
         );
         b.id = `ytlvt-${i.key}-button`;
+        b.title = "Disable debounce";
         b.style.display = "none";
         b.style.whiteSpace = "nowrap";
 
@@ -1008,17 +1054,9 @@ display: none !important;
           b.classList.toggle(`${i.key}-on`, i.state());
         });
 
-        if (i.key == "turboMode") {
-          b.title = "Disable debounce";
-        }
-
-        if (i.key === "highlightTitle") {
-          buttonContainers.get("showHearts")?.prepend(b);
-        } else {
-          optionsContainer.prepend(b);
-        }
+        optionsContainer.prepend(b);
         return { b, i };
-      } else {
+      } else if (i.key === "highlightTitle") {
         const b = makeButton(
           `${i.label} ${i.icon}`,
           () => {
@@ -1026,7 +1064,61 @@ display: none !important;
             updateBodyToggles();
             processAllVideos();
           },
-          "#009783ff"
+          "#333",
+        );
+        b.id = `ytlvt-${i.key}-button`;
+        b.style.display = "none";
+        b.style.whiteSpace = "nowrap";
+        b.style.alignItems = "center";
+        b.style.gap = "6px";
+        b.classList.toggle("ytlvt-option-button-on", i.state());
+        b.classList.toggle(`${i.key}-on`, i.state());
+        b.addEventListener(`click`, () => {
+          b.classList.toggle("ytlvt-option-button-on", i.state());
+          b.classList.toggle(`${i.key}-on`, i.state());
+        });
+
+        // create color picker inside the button
+        const colorInput = document.createElement("input");
+        colorInput.id = `ytlvt-titleColor-button`;
+        colorInput.type = "color";
+        colorInput.value = titleColor;
+        colorInput.style.cssText = `
+          cursor: pointer;
+          padding: 0px;
+          width: 16px;
+          height: 16px;
+          border: none;
+          border-radius: 50%;
+          scale: 1.1;
+          outline: solid white;
+          outline-width: medium;
+          outline-width: 2px;
+          outline-offset: -1px;
+        `;
+        // colorInput.innerHTML = `${i.label} ${i.icon}`;
+        colorInput.addEventListener("change", (e) => {
+          titleColor = e.target.value;
+          persistToggle("titleColor", titleColor);
+          updateTitleColorCss();
+        });
+        colorInput.addEventListener("click", (e) => {
+          e.stopPropagation();
+        });
+        b.prepend(colorInput);
+        buttonContainers.get("showHearts")?.prepend(b);
+
+        return { b, i };
+      } else {
+        // bottom row option buttons
+        const b = makeButton(
+          `${i.label} ${i.icon}`,
+          () => {
+            i.act();
+            updateBodyToggles();
+            processAllVideos();
+          },
+          "#009783ff",
         );
         b.style.display = "none";
         b.style.whiteSpace = "nowrap";
@@ -1078,7 +1170,7 @@ display: none !important;
       const open = optionsButtons[0].b.style.display !== "none";
       optionsButtons.forEach((x) => {
         // Use "flex" for sliders, "block" for buttons
-        const display = x.i.slider ? "flex" : "block";
+        const display = x.i.key === "highlightTitle" || x.i.slider ? "flex" : "block";
         x.b.style.display = open ? "none" : display;
       });
     }
@@ -1109,7 +1201,7 @@ display: none !important;
           optionsContainer.style.display = "none";
         }
       },
-      true
+      true,
     );
 
     // close menu on escape key press
@@ -1129,7 +1221,7 @@ display: none !important;
   function makeButton(text, fn, bg) {
     const b = document.createElement("button");
     b.type = "button";
-    b.innerHTML = text;
+    b.textContent = text;
     b.onclick = fn;
     b.style.cssText = `
         background:${bg};
