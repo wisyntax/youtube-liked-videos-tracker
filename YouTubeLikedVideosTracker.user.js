@@ -1,21 +1,17 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    https://github.com/wisyntax/youtube-liked-videos-tracker
-// @version      2.5
-// @description  Adds hearts to liked videos, with options to dim or hide them.
+// @version      2.6
 // @license      MIT
+// @description  Adds visual indicators to liked YouTube videos.
 // @author       wisyntax
 // @match        *://www.youtube.com/*
-// @icon         data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2300bfa5'/%3E%3Cg transform='translate(16, 16) scale(0.65) translate(-16, -16)'%3E%3Cpath d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addValueChangeListener
+// @icon         data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2300bfa5'/%3E%3Cg transform='translate(16, 16) scale(0.65) translate(-16, -16)'%3E%3Cpath d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E
 // ==/UserScript==
-
-// stop script execution in subframes
-if (window.top !== window.self) {
-  return;
-}
 
 (() => {
   "use strict";
@@ -25,11 +21,11 @@ if (window.top !== window.self) {
   //*****************************************************************
   let likedIndex = new Set(GM_getValue("likedIndex", []));
   let showHearts = GM_getValue("showHearts", true);
-  let dimLiked = GM_getValue("dimLiked", true);
+  let dimLiked = GM_getValue("dimLiked", false);
   let hideLiked = GM_getValue("hideLiked", false);
   let badgeHeartColor = GM_getValue("badgeHeartColor", "#FFFFFF");
   let badgeBackgroundColor = GM_getValue("badgeBackgroundColor", "#ff0033");
-  let highlightTitle = GM_getValue("highlightTitle", false);
+  let highlightTitle = GM_getValue("highlightTitle", true);
   let titleColor = GM_getValue("titleColor", "#ff0033");
   let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
@@ -52,8 +48,10 @@ if (window.top !== window.self) {
   }
 
   function turboToggleAlert() {
-    const mode = turboMode ? "ENABLED" : "DISABLED";
-    if (confirm(`Quick mode ${mode}\n\nReload to apply now?`)) {
+    const mode = turboMode ? "DISABLE" : "ENABLE";
+    if (confirm(`Reload required!\n\n${mode} quick mode?`)) {
+      turboMode = !turboMode;
+      persistToggle("turboMode", turboMode);
       location.reload();
     }
   }
@@ -79,9 +77,9 @@ fill: var(--ytlvt-liked-heart-color);
 background: var(--ytlvt-liked-heart-background-color);
 }
 
-.ytlvt-liked-heart-hidden { display: none !important; }
+.ytlvt-liked-heart-hidden {display: none !important;}
 
-/* DIM liked videos - only apply to top-level parents */ 
+/* DIM liked videos - only apply to top-level parents */
 body.ytlvt-liked-dim :is(
   ytd-rich-item-renderer,  /* main, channel videos */
   ytd-video-renderer, /* search */
@@ -89,7 +87,8 @@ body.ytlvt-liked-dim :is(
   ytd-playlist-video-renderer,  /* playlists */
   ytd-playlist-panel-video-renderer,  /* playlist panel */
   .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-modern-videowall-still,  /* video end screen */
+  .ytp-ce-element, /* video end screen */
+  .ytp-modern-videowall-still,  /* video end wall */
   .ytp-autonav-endscreen-upnext-container  /* video autoplay - no need to add to hide */
 ):has(.ytlvt-liked-indicator),
 /* Selectors that need :not() */
@@ -108,6 +107,7 @@ body.ytlvt-liked-dim :is(
   ytd-playlist-panel-video-renderer,
   .ytGridShelfViewModelGridShelfItem,
   ytm-shorts-lockup-view-model-v2,
+  .ytp-ce-element,
   .ytp-modern-videowall-still,
   .ytp-autonav-endscreen-upnext-container
 ):hover {
@@ -124,7 +124,8 @@ body.ytlvt-liked-hide:not(.ytlvt-liked-hide-disabled) :is(
   ytd-playlist-video-renderer, /* playlists excluding liked videos*/
   ytd-playlist-panel-video-renderer,  /* playlist panel */
   .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-modern-videowall-still  /* video end screen */
+  .ytp-ce-element, /* video end screen */
+  .ytp-modern-videowall-still  /* video end wall */
 ):has(.ytlvt-liked-indicator),
 body.ytlvt-liked-hide yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
 body.ytlvt-liked-hide ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *),  /* shorts shelf */
@@ -142,13 +143,16 @@ body.ytlvt-liked-highlight-title :is(
   ytd-playlist-panel-video-renderer,
   .ytGridShelfViewModelGridShelfItem,
   ytm-shorts-lockup-view-model-v2,
+  .ytp-ce-element,
   .ytp-modern-videowall-still,
   .ytp-autonav-endscreen-upnext-container
 ):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
   .yt-lockup-metadata-view-model__title,
+  .ytp-ce-video-title,
   .ytp-modern-videowall-still-info-title,
   .ytp-autonav-endscreen-upnext-title,
-  #video-title
+  #video-title,
+  a[title]
 ) {
   color: var(--ytlvt-liked-title-color) !important;
 }
@@ -215,18 +219,18 @@ body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
   left: 0;
   width: 100%;
   height: 100%;
-  backdrop-filter: brightness(1.2) contrast(1.1); 
+  backdrop-filter: brightness(1.2) contrast(1.1);
   opacity: 0;
-  pointer-events: none; 
+  pointer-events: none;
 }
 #ytlvt-heart-menu button:hover::after {
   opacity: 1;
 }
 
 /* Colorpicker appearance fix */
-#ytlvt-heart-menu input[type="color"] { -webkit-appearance: none; }
-#ytlvt-heart-menu input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-#ytlvt-heart-menu input[type="color"]::-webkit-color-swatch { border: none; }
+#ytlvt-heart-menu input[type="color"] {-webkit-appearance: none;}
+#ytlvt-heart-menu input[type="color"]::-webkit-color-swatch-wrapper {padding: 0;}
+#ytlvt-heart-menu input[type="color"]::-webkit-color-swatch {border: none;}
 
 
 /*--- menu MAIN-button change on toggles ---*/
@@ -244,9 +248,9 @@ body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
   paint-order: stroke;
 }
 
-/* dimLiked main heart dim */
+/* dimLiked main heart background dim */
 #ytlvt-heart-menu:has(.dimLiked-on) #ytlvt-menu-main-button {
-  opacity: 80%;
+  background: rgba(0, 191, 165, 65%) !important;
 }
 
 /* hideLiked main heart hide */
@@ -258,7 +262,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
   outline-offset: -3px;
 }
 body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt-menu-main-button svg {
-display: none !important;
+  display: none !important;
 }
 
 /* main button greyout when no toggle */
@@ -288,24 +292,26 @@ display: none !important;
     document.body.classList.toggle("ytlvt-liked-highlight-title", highlightTitle);
   }
 
-  function isPlaylists() {
-    return location.pathname.includes("/feed/playlists");
+  function isDisableHidePage() {
+    return (
+      (location.pathname.includes("/playlist") && location.search.includes("list=LL")) ||
+      location.pathname.includes("/feed/playlists") ||
+      location.pathname.includes("/feed/library") ||
+      location.pathname.includes("/feed/you")
+    );
   }
   function isLikedPlaylist() {
     return location.pathname.includes("/playlist") && location.search.includes("list=LL");
   }
 
   function updateMenuState() {
-    const inLikedPlaylist = isLikedPlaylist();
-    const disableHide = isLikedPlaylist() || isPlaylists();
-
-    // Disable hide on the Liked Videos playlist or Playlists
-    document.body.classList.toggle("ytlvt-liked-hide-disabled", disableHide);
+    // Disable hide on the Playlists, Liked Videos playlist & library page
+    document.body.classList.toggle("ytlvt-liked-hide-disabled", isDisableHidePage());
 
     // Show/hide playlist scan button
     const scanButtonContainer = document.getElementById("ytlvt-playlistScan-button")?.parentElement;
     if (scanButtonContainer) {
-      scanButtonContainer.style.display = inLikedPlaylist ? "flex" : "none";
+      scanButtonContainer.style.display = isLikedPlaylist() ? "flex" : "none";
     }
   }
 
@@ -329,23 +335,26 @@ display: none !important;
     "yt-lockup-view-model",
     "ytd-video-renderer",
     "ytd-grid-video-renderer",
+    "ytd-rich-grid-media", // channel videos tab fix (not used in css)
     "ytd-playlist-video-renderer",
     "ytd-playlist-panel-video-renderer",
     "ytm-shorts-lockup-view-model-v2",
-    "a.ytp-modern-videowall-still",
-    ".ytp-autonav-endscreen-upnext-container",
+    ".ytp-ce-element", // end screen
+    ".ytp-modern-videowall-still", // end wall
+    ".ytp-autonav-endscreen-upnext-container", // autoplay
   ];
 
   const VIDEO_SELECTOR = VIDEO_CONTAINER.join(",");
 
-  // Get video thumbnail for heart indicator
+  // Get video thumbnail to anchor indicator
   function getThumbnailElement(el) {
     return (
       el.querySelector("a#thumbnail") ||
       el.querySelector("ytd-thumbnail") ||
       el.querySelector("yt-thumbnail-view-model") ||
-      el.querySelector(".ytp-modern-videowall-still-image") || // endscreen
-      el.querySelector(".ytp-autonav-endscreen-upnext-thumbnail") // autoplay
+      el.querySelector(".ytp-ce-covering-image") ||
+      el.querySelector(".ytp-modern-videowall-still-image") ||
+      el.querySelector(".ytp-autonav-endscreen-upnext-thumbnail")
     );
   }
 
@@ -367,14 +376,8 @@ display: none !important;
       return extractVideoId(el.href);
     }
 
-    // Handle autoplay container
-    if (el.classList?.contains("ytp-autonav-endscreen-upnext-container")) {
-      const link = el.querySelector("a.ytp-autonav-endscreen-link-container");
-      return link ? extractVideoId(link.href) : null;
-    }
-
     // Handle regular containers
-    const a = el.querySelector('a[href*="/watch"], a[href*="/shorts"], a[href^="/shorts"]');
+    const a = el.querySelector('a[href*="/watch"], a[href*="/shorts"]');
     return a ? extractVideoId(a.href) : null;
   }
 
@@ -717,7 +720,7 @@ display: none !important;
       background: #d32f2f !important;
       font-weight: bold;
       }
-      
+
       /* Hide thumbnails */
       ytd-playlist-video-renderer ytd-thumbnail,
       ytd-playlist-video-renderer img {
@@ -937,16 +940,16 @@ display: none !important;
     `;
     // prettier-ignore
     const menuItems = [
-      { icon: "❤️‍", label: "Show hearts", state: () => showHearts, key: "showHearts", toggle: true, act: () => { showHearts = !showHearts; persistToggle("showHearts", showHearts); } },
-      { icon: "🩵", label: "Dim liked videos", state: () => dimLiked, key: "dimLiked", toggle: true, act: () => { dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked); } },
-      { icon: "🩶", label: "Hide liked videos", state: () => hideLiked, key: "hideLiked", toggle: true, act: () => { hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked); } },
+      { icon: "❤️‍", label: "Show hearts", state: () => showHearts, key: "showHearts", toggle: true, act: () => {showHearts = !showHearts; persistToggle("showHearts", showHearts);}},
+      { icon: "🩵", label: "Dim liked videos", state: () => dimLiked, key: "dimLiked", toggle: true, act: () => {dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked);}},
+      { icon: "🩶", label: "Hide liked videos", state: () => hideLiked, key: "hideLiked", toggle: true, act: () => {hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked);}},
       { icon: "💖", label: "Scan liked playlist ", key: "playlistScan" , act: playlistScan },
     ];
     // prettier-ignore
     const optionsItems = [
-      { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => { highlightTitle = !highlightTitle; persistToggle("highlightTitle", highlightTitle); } },
-      { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => { dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss(); } },
-      { icon: "❤️‍🔥", label: "Quick", state: () => turboMode, key: "turboMode", toggle: true, act: () => { turboMode = !turboMode; persistToggle("turboMode", turboMode); turboToggleAlert(); } },
+      { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => {highlightTitle = !highlightTitle; persistToggle("highlightTitle", highlightTitle);}},
+      { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => {dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss();}},
+      { icon: "❤️‍🔥", label: "Quick", state: () => turboMode, key: "turboMode", toggle: true, act: turboToggleAlert },
       { icon: "💗", label: "Import", act: openImport },
       { icon: "💞", label: "Export", act: exportLikes },
       { icon: "💔", label: "Clear index", act: clearLikedIndexDoubleConfirm },
