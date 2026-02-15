@@ -2,7 +2,9 @@
 
 A userscript that shows which YouTube videos you've already liked—before you click them.
 
-Adds heart badges to liked video thumbnails and lets you hide or dim them. For users tracking watch history with likes.
+Adds heart badges to liked video thumbnails with options to color their titles, dim them, or hide them.
+
+![screenshot](assets/screenshot.png)
 
 ---
 ## 🛠 Installation
@@ -96,7 +98,7 @@ Automatically detects and marks liked videos across YouTube with heart overlays 
 The script detects like/unlike actions in real-time and syncs across tabs.
 
 ---
-### 🎛️ Floating Heart Menu
+### <img src="assets/icon.svg" alt="icon" style="width: 22px; vertical-align: bottom;"> Floating Heart Menu
 
 Access the script menu from the heart button in the bottom-right corner.
 
@@ -104,7 +106,7 @@ Access the script menu from the heart button in the bottom-right corner.
 - ❤️ **Show hearts** - Display heart overlays on liked videos (includes color picker in options)
 - 🩵 **Dim liked videos** - Reduce opacity of liked videos
 - 🩶 **Hide liked videos** - Hide liked videos (disabled on Liked Videos playlist)
-- 💖 **Scan liked playlist** - Update index from your Liked Videos playlist
+- 💖 **Scan liked playlist** - Update script index (only visible on your [Liked Videos playlist](https://www.youtube.com/playlist?list=LL))
 
 **Options Submenu:**
 - ❣️ **Highlight title** - Color liked video titles (includes color picker)
@@ -117,7 +119,7 @@ Access the script menu from the heart button in the bottom-right corner.
 All toggles persist across sessions.
 
 ---
-## 💾 Export & Backup
+### 💾 Export & Backup
 
 Click **💞 Export** in the Options submenu to download your liked videos index as a JSON file.
 
