@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    https://github.com/wisyntax/youtube-liked-videos-tracker
-// @version      2.6
+// @version      2.7
 // @license      MIT
 // @description  Adds visual indicators to liked YouTube videos.
 // @author       wisyntax
@@ -30,7 +30,7 @@
   let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
 
-  const DEBOUNCE_TIMER = 250;
+  const DEBOUNCE_TIME = 250;
 
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
   const persistToggle = (k, v) => GM_setValue(k, v);
@@ -79,21 +79,49 @@ background: var(--ytlvt-liked-heart-background-color);
 
 .ytlvt-liked-heart-hidden {display: none !important;}
 
-/* DIM liked videos - only apply to top-level parents */
-body.ytlvt-liked-dim :is(
-  ytd-rich-item-renderer,  /* main, channel videos */
-  ytd-video-renderer, /* search */
+/* COLOR liked video titles when hearts are shown */
+body.ytlvt-liked-highlight-title :is(
+  ytd-rich-item-renderer,  /* homepage, channel videos */
+  yt-lockup-view-model,  /* watch, history */
+  ytd-video-renderer,  /* search */
   ytd-grid-video-renderer,  /* channel */
   ytd-playlist-video-renderer,  /* playlists */
   ytd-playlist-panel-video-renderer,  /* playlist panel */
   .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-ce-element, /* video end screen */
+  ytm-shorts-lockup-view-model-v2,  /* shorts shelf */
+  .ytp-ce-element,  /* video end screen */
+  .ytp-videowall-still,  /* old video end wall */
   .ytp-modern-videowall-still,  /* video end wall */
   .ytp-autonav-endscreen-upnext-container  /* video autoplay - no need to add to hide */
+):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
+  .yt-lockup-metadata-view-model__title,
+  .ytp-ce-video-title,
+  .ytp-videowall-still-info-title,
+  .ytp-modern-videowall-still-info-title,
+  .ytp-autonav-endscreen-upnext-title,
+  #video-title,
+  a[title]
+) {
+  color: var(--ytlvt-liked-title-color) !important;
+}
+
+/* DIM liked videos - only apply to top-level parents */
+body.ytlvt-liked-dim :is(
+  ytd-rich-item-renderer,
+  ytd-video-renderer,
+  ytd-grid-video-renderer,
+  ytd-playlist-video-renderer,
+  ytd-playlist-panel-video-renderer,
+  .ytGridShelfViewModelGridShelfItem,
+  .ytp-ce-element,
+  .ytp-videowall-still,
+  .ytp-modern-videowall-still,
+  .ytp-autonav-endscreen-upnext-container
 ):has(.ytlvt-liked-indicator),
-/* Selectors that need :not() */
-body.ytlvt-liked-dim yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
-body.ytlvt-liked-dim ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *) {  /* shorts shelf */
+/* Selectors that need :not() to prevent double dim */
+body.ytlvt-liked-dim yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),
+body.ytlvt-liked-dim ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *)
+{
   opacity: var(--ytlvt-liked-dim-opacity);
 }
 
@@ -108,6 +136,7 @@ body.ytlvt-liked-dim :is(
   .ytGridShelfViewModelGridShelfItem,
   ytm-shorts-lockup-view-model-v2,
   .ytp-ce-element,
+  .ytp-videowall-still,
   .ytp-modern-videowall-still,
   .ytp-autonav-endscreen-upnext-container
 ):hover {
@@ -116,25 +145,8 @@ body.ytlvt-liked-dim :is(
   transition-delay: 300ms;
 }
 
-/* HIDE liked videos - only apply to top-level parents */
+/* HIDE liked videos unless disabled */
 body.ytlvt-liked-hide:not(.ytlvt-liked-hide-disabled) :is(
-  ytd-rich-item-renderer,  /* main, channel videos */
-  ytd-video-renderer,  /* search */
-  ytd-grid-video-renderer,  /* channel */
-  ytd-playlist-video-renderer, /* playlists excluding liked videos*/
-  ytd-playlist-panel-video-renderer,  /* playlist panel */
-  .ytGridShelfViewModelGridShelfItem,  /* shorts grid */
-  .ytp-ce-element, /* video end screen */
-  .ytp-modern-videowall-still  /* video end wall */
-):has(.ytlvt-liked-indicator),
-body.ytlvt-liked-hide yt-lockup-view-model:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *),  /* watch, history */
-body.ytlvt-liked-hide ytm-shorts-lockup-view-model-v2:has(.ytlvt-liked-indicator):not(ytd-rich-item-renderer *):not(.ytGridShelfViewModelGridShelfItem *),  /* shorts shelf */
-body.ytlvt-liked-hide a.ytp-modern-videowall-still:has(.ytlvt-liked-indicator) {
-  display: none !important;
-}
-
-/* COLOR liked video titles when hearts are shown */
-body.ytlvt-liked-highlight-title :is(
   ytd-rich-item-renderer,
   yt-lockup-view-model,
   ytd-video-renderer,
@@ -144,20 +156,13 @@ body.ytlvt-liked-highlight-title :is(
   .ytGridShelfViewModelGridShelfItem,
   ytm-shorts-lockup-view-model-v2,
   .ytp-ce-element,
-  .ytp-modern-videowall-still,
-  .ytp-autonav-endscreen-upnext-container
-):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
-  .yt-lockup-metadata-view-model__title,
-  .ytp-ce-video-title,
-  .ytp-modern-videowall-still-info-title,
-  .ytp-autonav-endscreen-upnext-title,
-  #video-title,
-  a[title]
-) {
-  color: var(--ytlvt-liked-title-color) !important;
+  .ytp-videowall-still,
+  .ytp-modern-videowall-still
+):has(.ytlvt-liked-indicator) {
+  display: none !important;
 }
 
-/* HIDE menu on fullscreen */
+/* HIDE heart menu on fullscreen */
 html:fullscreen #ytlvt-heart-menu,
 html.ytp-fullscreen #ytlvt-heart-menu,
 ytd-app[fullscreen] #ytlvt-heart-menu {
@@ -276,7 +281,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
   function updateBadgeHeartColorCss() {
     document.documentElement.style.setProperty("--ytlvt-liked-heart-color", badgeHeartColor);
   }
-  function updatebadgeBackgroundColorCss() {
+  function updateBadgeBackgroundColorCss() {
     document.documentElement.style.setProperty("--ytlvt-liked-heart-background-color", badgeBackgroundColor);
   }
   function updateTitleColorCss() {
@@ -304,7 +309,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     return location.pathname.includes("/playlist") && location.search.includes("list=LL");
   }
 
-  function updateMenuState() {
+  function updateMenuUI() {
     // Disable hide on the Playlists, Liked Videos playlist & library page
     document.body.classList.toggle("ytlvt-liked-hide-disabled", isDisableHidePage());
 
@@ -315,12 +320,11 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     }
   }
 
-  // Update context when navigating
   document.addEventListener("yt-navigate-finish", () => {
-    updateMenuState();
+    updateMenuUI();
   });
 
-  // autoplay container only gets attribute changes so new node mutation observer doesn't catch it
+  // autoplay container only gets attribute changes and doesn't have thumbnail as id so mutation observer doesn't catch it
   // process all at the end of a video to catch the changes
   document.addEventListener("yt-autonav-pause-player-ended", () => {
     requestAnimationFrame(processAllVideos);
@@ -335,11 +339,11 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     "yt-lockup-view-model",
     "ytd-video-renderer",
     "ytd-grid-video-renderer",
-    "ytd-rich-grid-media", // channel videos tab fix (not used in css)
     "ytd-playlist-video-renderer",
     "ytd-playlist-panel-video-renderer",
     "ytm-shorts-lockup-view-model-v2",
     ".ytp-ce-element", // end screen
+    ".ytp-videowall-still", // end wall old (V to toggle at end of video)
     ".ytp-modern-videowall-still", // end wall
     ".ytp-autonav-endscreen-upnext-container", // autoplay
   ];
@@ -353,6 +357,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       el.querySelector("ytd-thumbnail") ||
       el.querySelector("yt-thumbnail-view-model") ||
       el.querySelector(".ytp-ce-covering-image") ||
+      el.querySelector(".ytp-videowall-still-image") ||
       el.querySelector(".ytp-modern-videowall-still-image") ||
       el.querySelector(".ytp-autonav-endscreen-upnext-thumbnail")
     );
@@ -369,10 +374,12 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     );
   }
 
-  // Get element video ID
   function getVideoIdFromElement(el) {
     // Handle video wall elements (they are the <a> tag themselves)
-    if (el.classList?.contains("ytp-modern-videowall-still")) {
+    if (
+      el.classList?.contains("ytp-videowall-still") ||
+      el.classList?.contains("ytp-modern-videowall-still")
+    ) {
       return extractVideoId(el.href);
     }
 
@@ -381,13 +388,11 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     return a ? extractVideoId(a.href) : null;
   }
 
-  // Get current watch video ID
   function getCurrentVideoId() {
     const videoRenderer = document.querySelector("ytd-watch-flexy");
     return videoRenderer?.videoId || null;
   }
 
-  // Get current shorts video ID
   function getCurrentShortId() {
     const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
     if (!activeShort) return null;
@@ -482,7 +487,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     // Create SVG heart
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "-4 0 40 32");
-    svg.style.cssText = "width:80%;height:80%;background:none!important;";
+    svg.style.cssText = "width:18px;height:18px;background:none!important;";
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute(
@@ -515,8 +520,8 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     heartMap.set(el, heart);
   }
 
-  // Ensure heart state matches current index and visibility settings
-  // Creates, removes, or hides the overlay as needed
+  // ensure heart state matches current index and visibility settings
+  // creates, removes, or hides the overlay as needed
   function updateHeartDisplay(el) {
     const id = getVideoIdFromElement(el);
     if (!id) return;
@@ -530,6 +535,13 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         heartMap.delete(el);
       }
       return;
+    }
+
+    // check if heart is orphaned (not a child of this element anymore)
+    // youtube destroys hearts inside elements during layout changes (window resize, channel tab switch)
+    if (heart && !el.contains(heart)) {
+      heart = null;
+      heartMap.delete(el);
     }
 
     // ensure heart exists
@@ -589,7 +601,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
           flushPendingVideosRaw();
         });
       }
-    : debounce(flushPendingVideosRaw, DEBOUNCE_TIMER);
+    : debounce(flushPendingVideosRaw, DEBOUNCE_TIME);
   // ignore mutations caused by UI (heart overlays / menu)
   const IGNORED_CLASSES = new Set(["ytlvt-liked-indicator", "ytlvt-heart-menu"]);
 
@@ -912,9 +924,8 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
 
     likedIndex.clear();
     persistIndex(likedIndex);
-
-    alert("✅ Liked index cleared.");
     processAllVideos();
+    alert("✅ Liked index cleared.");
   }
 
   //*****************************************************************
@@ -985,7 +996,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         heartBackgroundColorInput.addEventListener("change", (e) => {
           badgeBackgroundColor = e.target.value;
           persistToggle("badgeBackgroundColor", badgeBackgroundColor);
-          updatebadgeBackgroundColorCss();
+          updateBadgeBackgroundColorCss();
         });
         heartBackgroundColorInput.style.marginRight = "2px";
         button.prepend(heartBackgroundColorInput);
@@ -1011,11 +1022,8 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       `;
       container.className = "ytlvt-menu-button-container";
       container.appendChild(button);
-
       buttonContainers.set(i.key, container);
-
       menuContainer.appendChild(container);
-
       menuButtons.push({ b: button, i });
     });
 
@@ -1074,18 +1082,18 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       bottom: 0;
       right: 100%;
     `;
-    optionsContainer.style.display = "none"; // hidden by default
+    optionsContainer.style.display = "none";
     menuContainer.insertBefore(optionsContainer, mainButtonContainer);
 
-    // create options button (inside main menu)
+    // create options button
     const options = makeButton("Options ❤️‍🩹", toggleOptions, "#333");
     options.id = "ytlvt-options-button";
-    options.style.display = "none"; // hidden until menu opens
+    options.style.display = "none";
     options.style.position = "relative"; // anchor for submenu
     optionsContainer.appendChild(options);
     const optionsButtons = optionsItems.map((i) => {
       if (i.slider) {
-        // Create slider input for opacity
+        // create slider input for opacity
         const sliderContainer = document.createElement("div");
         sliderContainer.style.cssText = `
           display: none;
@@ -1155,7 +1163,6 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
           () => {
             i.act();
             updateBodyToggles();
-            processAllVideos();
           },
           "#333",
         );
@@ -1189,8 +1196,6 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
           `${i.label} ${i.icon}`,
           () => {
             i.act();
-            updateBodyToggles();
-            processAllVideos();
           },
           "#009783ff",
         );
@@ -1218,7 +1223,6 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     options.addEventListener("click", (e) => {
       e.stopPropagation();
     });
-
     optionsContainer.addEventListener("click", (e) => {
       e.stopPropagation();
     });
