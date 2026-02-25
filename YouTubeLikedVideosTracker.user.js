@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    https://github.com/wisyntax/youtube-liked-videos-tracker
-// @version      2.7
+// @version      2.8
 // @license      MIT
 // @description  Adds visual indicators to liked YouTube videos.
 // @author       wisyntax
@@ -9,6 +9,8 @@
 // @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_registerMenuCommand
 // @grant        GM_addValueChangeListener
 // @icon         data:image/svg+xml,%3Csvg viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2300bfa5'/%3E%3Cg transform='translate(16, 16) scale(0.65) translate(-16, -16)'%3E%3Cpath d='M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E
 // ==/UserScript==
@@ -25,15 +27,98 @@
   let hideLiked = GM_getValue("hideLiked", false);
   let badgeHeartColor = GM_getValue("badgeHeartColor", "#FFFFFF");
   let badgeBackgroundColor = GM_getValue("badgeBackgroundColor", "#ff0033");
-  let highlightTitle = GM_getValue("highlightTitle", true);
+  let highlightTitle = GM_getValue("highlightTitle", false);
   let titleColor = GM_getValue("titleColor", "#ff0033");
   let dimOpacity = GM_getValue("dimOpacity", 0.65);
   let turboMode = GM_getValue("turboMode", true);
+  let showHeartMenu = GM_getValue("showHeartMenu", true);
+  let useYoutubeLikeIcon = GM_getValue("useYoutubeLikeIcon", false);
+  let autoSyncHours = GM_getValue("autoSyncHours", 6);
+  let lastSyncTime = GM_getValue("lastSyncTime", 0);
 
   const DEBOUNCE_TIME = 250;
 
   const persistIndex = (index) => GM_setValue("likedIndex", [...index]);
-  const persistToggle = (k, v) => GM_setValue(k, v);
+  const persistSetting = (k, v) => GM_setValue(k, v);
+
+  // script options for script manager
+  if (typeof GM_registerMenuCommand === "function") {
+    const menuCommands = {
+      showHeartMenu: {
+        id: 1,
+        label: () => `${showHeartMenu ? "✓ " : ""}Show Heart Menu`,
+        action() {
+          showHeartMenu = !showHeartMenu;
+          persistSetting("showHeartMenu", showHeartMenu);
+          const menu = document.getElementById("ytlvt-heart-menu");
+          if (menu) menu.style.display = showHeartMenu ? "flex" : "none";
+          registerMenuCommands();
+        },
+      },
+      useYoutubeLikeIcon: {
+        id: 2,
+        label: () => `${useYoutubeLikeIcon ? "✓ " : ""}Use YouTube Like Icon`,
+        action() {
+          const newIcon = useYoutubeLikeIcon ? "heart" : "like";
+          if (!confirm(`Change indicator to use ${newIcon} icon?\n\nThis requires a page reload.`)) return;
+          useYoutubeLikeIcon = !useYoutubeLikeIcon;
+          persistSetting("useYoutubeLikeIcon", useYoutubeLikeIcon);
+          location.reload();
+        },
+      },
+      autoSync: {
+        id: 3,
+        label: () => `${autoSyncHours > 0 ? "✓ " : ""}Auto-Sync Recent Likes`,
+        action() {
+          configureAutoSync();
+          registerMenuCommands();
+        },
+      },
+      syncRecentLikes: {
+        id: 4,
+        label: () => "Sync Recent Likes Now",
+        action: async () => {
+          await syncRecentLikes();
+        },
+      },
+      resetSettings: {
+        id: 5,
+        label: () => "Reset Default Settings",
+        action() {
+          if (
+            !confirm(
+              "Reset all settings to defaults?\n\nThis requires a page reload.\nLiked index will NOT be affected.",
+            )
+          )
+            return;
+          [
+            "showHearts",
+            "dimLiked",
+            "hideLiked",
+            "badgeHeartColor",
+            "badgeBackgroundColor",
+            "highlightTitle",
+            "titleColor",
+            "dimOpacity",
+            "turboMode",
+            "showHeartMenu",
+            "useYoutubeLikeIcon",
+            "autoSyncHours",
+            "lastSyncTime",
+          ].forEach(GM_deleteValue);
+          location.reload();
+        },
+      },
+    };
+
+    function registerMenuCommands() {
+      Object.values(menuCommands).forEach(({ id, label, action }) => {
+        GM_registerMenuCommand(label(), action, { id, autoClose: false });
+      });
+    }
+
+    registerMenuCommands();
+  }
 
   // sync across tabs using value change listener
   if (typeof GM_addValueChangeListener === "function") {
@@ -45,15 +130,12 @@
         processAllVideos();
       }
     });
-  }
 
-  function turboToggleAlert() {
-    const mode = turboMode ? "DISABLE" : "ENABLE";
-    if (confirm(`Reload required!\n\n${mode} quick mode?`)) {
-      turboMode = !turboMode;
-      persistToggle("turboMode", turboMode);
-      location.reload();
-    }
+    GM_addValueChangeListener("lastSyncTime", (name, oldValue, newValue, remote) => {
+      if (remote) {
+        lastSyncTime = newValue;
+      }
+    });
   }
 
   //*****************************************************************
@@ -183,7 +265,7 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
   background: #395ebdff !important;
 }
 
-/* hide coloPicker when options not visible */
+/* hide colorPicker when options not visible */
 #ytlvt-heart-menu:not(:has(#ytlvt-options-button.visible)) input[type="color"],
 /* hide showHearts colorpicker when not on */
 #ytlvt-showHearts-button:not(.showHearts-on) input[type="color"],
@@ -242,15 +324,13 @@ body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
 
 /* showHearts main heart change */
 #ytlvt-heart-menu:has(.showHearts-on) #ytlvt-menu-main-button {
- fill: red !important;
+ fill: white;
 }
 
 /* highlightTitle main heart change */
-#ytlvt-heart-menu:has(.highlightTitle-on):has(.showHearts-on) #ytlvt-menu-main-button svg {
-  stroke: yellow;
-  stroke-width: 6px;
-  stroke-linejoin: round;
-  paint-order: stroke;
+#ytlvt-heart-menu:has(.highlightTitle-on):has(.showHearts-on) #ytlvt-menu-main-button {
+  outline: #8ad9ff 4px double;
+  outline-offset: -3px;
 }
 
 /* dimLiked main heart background dim */
@@ -322,6 +402,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
 
   document.addEventListener("yt-navigate-finish", () => {
     updateMenuUI();
+    checkAutoSync();
   });
 
   // autoplay container only gets attribute changes and doesn't have thumbnail as id so mutation observer doesn't catch it
@@ -470,7 +551,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
   // add a non-interactive heart overlay into the video thumbnail
   function addHeart(el) {
     const id = getVideoIdFromElement(el);
-    if (!id || !likedIndex.has(id)) return; // skip unliked videos
+    if (!id || !likedIndex.has(id)) return;
     if (el.querySelector(".ytlvt-liked-indicator")) return; // skip if a heart overlay already exists (prevents duplicates)
 
     const host = getThumbnailElement(el);
@@ -484,19 +565,47 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     heart.className = "ytlvt-liked-indicator";
     heart.dataset.id = id;
 
-    // Create SVG heart
+    // Create SVG icon based on user preference
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "-4 0 40 32");
-    svg.style.cssText = "width:18px;height:18px;background:none!important;";
 
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      "M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z",
-    );
-    path.setAttribute("fill", "");
+    if (useYoutubeLikeIcon) {
+      // YouTube Like Icon
+      svg.setAttribute("viewBox", "0 2 48 48");
+      svg.style.cssText = "width:18px;height:18px;background:none!important;scale:1.6;";
 
-    svg.appendChild(path);
+      const path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path1.setAttribute(
+        "d",
+        "M0,-3.25 C1.7936749458312988,-3.25 3.25,-1.7936749458312988 3.25,0 C3.25,1.7936749458312988 1.7936749458312988,3.25 0,3.25 C-1.7936749458312988,3.25 -3.25,1.7936749458312988 -3.25,0 C-3.25,-1.7936749458312988 -1.7936749458312988,-3.25 0,-3.25z M0.7960000038146973,-9.994999885559082 C2.5880000591278076,-9.550000190734863 3.575000047683716,-7.699999809265137 3.1480000019073486,-5.933000087738037 C2.9639999866485596,-5.171000003814697 2.755000114440918,-4.4120001792907715 2.440000057220459,-3.4560000896453857 C2.125,-2.5 3.7939999103546143,-2.138000011444092 2.634999990463257,0.45100000500679016 C1.746999979019165,2.434999942779541 -3.75,0.7250000238418579 -2.7279999256134033,-2.1700000762939453 C-1.840999960899353,-4.681000232696533 -1.024999976158142,-7.050000190734863 -0.17000000178813934,-9.472999572753906 C-0.019999999552965164,-9.89900016784668 0.3869999945163727,-10.095999717712402 0.7960000038146973,-9.994999885559082z",
+      );
+      path1.setAttribute("fill", "");
+      path1.setAttribute("transform", "translate(21.9, 24.2) scale(1)");
+
+      const path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path2.setAttribute(
+        "d",
+        "M-0.2070000022649765,-2.4600000381469727 C0.26600000262260437,-2.0169999599456787 0.6620000004768372,-2.006999969482422 1.3259999752044678,-2.006999969482422 C1.3259999752044678,-2.006999969482422 6.616000175476074,-2.006999969482422 6.616000175476074,-2.006999969482422 C7.465000152587891,-2.00600004196167 8.239999771118164,-1.5269999504089355 8.619000434875488,-0.7680000066757202 C8.619000434875488,-0.7680000066757202 8.79800033569336,-0.4099999964237213 8.79800033569336,-0.4099999964237213 C9.199999809265137,0.3930000066757202 8.942000389099121,1.36899995803833 8.197999954223633,1.86899995803833 C8.074000358581543,1.9520000219345093 8,2.0910000801086426 8,2.240000009536743 C8,2.240000009536743 8,2.309000015258789 8,2.309000015258789 C8,2.434000015258789 8.041000366210938,2.555999994277954 8.116000175476074,2.6559998989105225 C8.88599967956543,3.678999900817871 8.704999923706055,5.133999824523926 7.704999923706055,5.934000015258789 C7.704999923706055,5.934000015258789 7.205999851226807,6.331999778747559 7.205999851226807,6.331999778747559 C7.081999778747559,6.431000232696533 7.0329999923706055,6.5980000495910645 7.083000183105469,6.748000144958496 C7.083000183105469,6.748000144958496 7.1529998779296875,6.953999996185303 7.1529998779296875,6.953999996185303 C7.369999885559082,7.607999801635742 7.252999782562256,8.326000213623047 6.840000152587891,8.876999855041504 C6.310999870300293,9.581999778747559 5.480999946594238,9.998000144958496 4.599999904632568,9.996999740600586 C4.599999904632568,9.996999740600586 0.6869999766349792,9.994999885559082 0.6869999766349792,9.994999885559082 C-1.4010000228881836,9.994000434875488 -3.453000068664551,9.447999954223633 -5.264999866485596,8.41100025177002 C-5.264999866485596,8.41100025177002 -5.538000106811523,8.255999565124512 -5.538000106811523,8.255999565124512 C-5.840000152587891,8.083000183105469 -6.183000087738037,7.992000102996826 -6.531000137329102,7.992000102996826 C-6.531000137329102,7.992000102996826 -9,7.992000102996826 -9,7.992000102996826 C-9.552000045776367,7.992000102996826 -10,7.544000148773193 -10,6.992000102996826 C-10,6.992000102996826 -10,0.9950000047683716 -10,0.9950000047683716 C-10,0.44200000166893005 -9.550999641418457,-0.006000000052154064 -8.998000144958496,-0.004999999888241291 C-8.998000144958496,-0.004999999888241291 -6.210999965667725,0 -6.210999965667725,0 C-5.784999847412109,0.0010000000474974513 -5.406000137329102,-0.2680000066757202 -5.264999866485596,-0.6700000166893005 C-5.264999866485596,-0.6700000166893005 -5.059000015258789,-0.8330000042915344 -4.901000022888184,-1.274999976158142 C-4.301000118255615,-2.950000047683716 -0.859000027179718,-3.2170000076293945 -0.2070000022649765,-2.4600000381469727z",
+      );
+      path2.setAttribute("fill", "");
+      path2.setAttribute("transform", "translate(24, 24) scale(1)");
+
+      svg.appendChild(path1);
+      svg.appendChild(path2);
+    } else {
+      // Heart Icon
+      svg.setAttribute("viewBox", "-4 0 40 32");
+      svg.style.cssText = "width:18px;height:18px;background:none!important;";
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute(
+        "d",
+        "M15.217 29.2015C15.752 29.5 16.3957 29.4835 16.9275 29.1795C20.5106 27.1318 26.7369 22.4179 29.1822 16.2948C32.7713 8.3224 24.3441 1.95834 18.5197 6.5356C17.9122 7.01307 17.1483 7.55954 16.6226 8.07719C16.3849 8.31124 15.966 8.33511 15.7193 8.11061C15.0281 7.48177 13.9479 6.67511 13.2542 6.20577C8.28887 2.84639 -0.74574 7.27463 3.1081 16.7255C4.51986 20.9677 11.2474 26.9862 15.217 29.2015Z",
+      );
+      path.setAttribute("fill", "");
+
+      svg.appendChild(path);
+    }
+
     heart.appendChild(svg);
 
     Object.assign(heart.style, {
@@ -657,6 +766,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
   //*****************************************************************
   let isScanActive = false;
   let isScanScrolling = false;
+  let isSyncing = false;
 
   async function playlistScan() {
     if (isScanScrolling) {
@@ -688,8 +798,10 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       max = response;
     }
 
-    // If max is null, just scan loaded (no scrolling)
-    const shouldScroll = max !== null;
+    // If max is null and max is lower than loaded, just scan loaded (no scrolling)
+    const shouldScroll =
+      max !== null &&
+      (max === "" || Number(max) > document.querySelectorAll("ytd-playlist-video-renderer").length);
     const startUrl = location.href;
 
     isScanActive = true;
@@ -799,7 +911,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     }
 
     persistIndex(likedIndex);
-    const scanEndStatus = !isScanScrolling && shouldScroll ? "interrupted by user" : "complete";
+    const scanEndStatus = !isScanScrolling && shouldScroll ? "completed early by user" : "complete";
     setTimeout(() => {
       processAllVideos();
       alert(
@@ -810,6 +922,144 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       isScanScrolling = false;
       document.removeEventListener("keydown", escapeListener);
     }, 0);
+  }
+
+  async function fetchRecentLikes() {
+    try {
+      const res = await fetch("https://www.youtube.com/playlist?list=LL");
+      if (!res.ok) throw new Error(`Failed to fetch playlist: ${res.status}`);
+
+      const html = await res.text();
+      const marker = "var ytInitialData = ";
+      const start = html.indexOf(marker);
+      if (start === -1) throw new Error("ytInitialData not found");
+
+      let depth = 0,
+        i = start + marker.length,
+        jsonStart = i;
+      for (; i < html.length; i++) {
+        if (html[i] === "{") depth++;
+        else if (html[i] === "}" && --depth === 0) break;
+      }
+
+      const data = JSON.parse(html.slice(jsonStart, i + 1));
+      // prettier-ignore
+      const videos =
+      data?.contents
+          ?.twoColumnBrowseResultsRenderer
+          ?.tabs?.[0]
+          ?.tabRenderer?.content
+          ?.sectionListRenderer?.contents?.[0]
+          ?.itemSectionRenderer?.contents?.[0]
+          ?.playlistVideoListRenderer?.contents;
+
+      if (!Array.isArray(videos)) throw new Error("Could not find video list");
+
+      return videos.map((v) => v?.playlistVideoRenderer?.videoId).filter(Boolean);
+    } catch (err) {
+      console.error("[Sync] Error:", err);
+      throw err;
+    }
+  }
+
+  async function syncRecentLikes() {
+    if (isSyncing) return;
+    isSyncing = true;
+    try {
+      const ids = await fetchRecentLikes();
+      if (ids.length === 0) {
+        alert("No videos found in playlist");
+        return;
+      }
+
+      let added = 0;
+      for (const id of ids) {
+        if (!likedIndex.has(id)) {
+          likedIndex.add(id);
+          added++;
+        }
+      }
+
+      persistIndex(likedIndex);
+      const now = Date.now();
+      persistSetting("lastSyncTime", now);
+      lastSyncTime = now;
+
+      processAllVideos();
+      alert(
+        `Sync complete\nScanned: ${ids.length}\nAdded: ${added} \nScript index: ${likedIndex.size.toLocaleString()}`,
+      );
+    } catch (err) {
+      alert("Sync failed. Check console for details.");
+      console.error("[Sync] Failed:", err);
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  function configureAutoSync() {
+    let msg = "Enter hours between auto-syncs:\n(0 = disabled)";
+    if (lastSyncTime > 0) {
+      const hours = ((Date.now() - lastSyncTime) / (1000 * 60 * 60)).toFixed(1);
+      msg += `\n\nLast sync: ${hours} hours ago`;
+    }
+
+    const input = prompt(msg, autoSyncHours);
+    if (input === null) return;
+
+    const hours = parseInt(input, 10);
+    if (isNaN(hours) || hours < 0) {
+      alert("Please enter a valid number (0 or greater)");
+      return;
+    }
+
+    autoSyncHours = hours;
+    persistSetting("autoSyncHours", hours);
+
+    if (hours === 0) {
+      alert("Auto-sync disabled");
+    } else {
+      alert(`Auto-sync will run every ${hours} hour${hours > 1 ? "s" : ""}`);
+    }
+  }
+
+  async function checkAutoSync() {
+    if (autoSyncHours === 0) return;
+    if (likedIndex.size === 0) return;
+    if (isSyncing) return;
+
+    const hoursSince = (Date.now() - lastSyncTime) / (1000 * 60 * 60);
+    if (hoursSince >= autoSyncHours) {
+      isSyncing = true;
+      try {
+        const ids = await fetchRecentLikes();
+        if (ids.length === 0) return;
+
+        let added = 0;
+        for (const id of ids) {
+          if (!likedIndex.has(id)) {
+            likedIndex.add(id);
+            added++;
+          }
+        }
+
+        if (added > 0) {
+          persistIndex(likedIndex);
+          processAllVideos();
+          console.log(`[Auto-Sync] Added ${added} new videos`);
+        } else {
+          console.log("[Auto-Sync] No new videos found");
+        }
+
+        const now = Date.now();
+        persistSetting("lastSyncTime", now);
+        lastSyncTime = now;
+      } catch (err) {
+        console.error("[Auto-Sync] Failed:", err);
+      } finally {
+        isSyncing = false;
+      }
+    }
   }
 
   //*****************************************************************
@@ -911,6 +1161,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     a.href = URL.createObjectURL(b);
     a.download = `ytlvt_liked_index_${dateStr}.json`;
     a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   // clear index
@@ -951,16 +1202,16 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     `;
     // prettier-ignore
     const menuItems = [
-      { icon: "❤️‍", label: "Show hearts", state: () => showHearts, key: "showHearts", toggle: true, act: () => {showHearts = !showHearts; persistToggle("showHearts", showHearts);}},
-      { icon: "🩵", label: "Dim liked videos", state: () => dimLiked, key: "dimLiked", toggle: true, act: () => {dimLiked = !dimLiked; persistToggle("dimLiked", dimLiked);}},
-      { icon: "🩶", label: "Hide liked videos", state: () => hideLiked, key: "hideLiked", toggle: true, act: () => {hideLiked = !hideLiked; persistToggle("hideLiked", hideLiked);}},
+      { icon: "❤️‍", label: "Show indicators", state: () => showHearts, key: "showHearts", toggle: true, act: () => {showHearts = !showHearts; persistSetting("showHearts", showHearts);}},
+      { icon: "🩵", label: "Dim liked videos", state: () => dimLiked, key: "dimLiked", toggle: true, act: () => {dimLiked = !dimLiked; persistSetting("dimLiked", dimLiked);}},
+      { icon: "🩶", label: "Hide liked videos", state: () => hideLiked, key: "hideLiked", toggle: true, act: () => {hideLiked = !hideLiked; persistSetting("hideLiked", hideLiked);}},
       { icon: "💖", label: "Scan liked playlist ", key: "playlistScan" , act: playlistScan },
     ];
     // prettier-ignore
     const optionsItems = [
-      { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => {highlightTitle = !highlightTitle; persistToggle("highlightTitle", highlightTitle);}},
-      { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => {dimOpacity = val; persistToggle("dimOpacity", dimOpacity); updateDimOpacityCss();}},
-      { icon: "❤️‍🔥", label: "Quick", state: () => turboMode, key: "turboMode", toggle: true, act: turboToggleAlert },
+      { icon: "❣️", label: "Highlight title", state: () => highlightTitle, key:"highlightTitle", toggle: true, act:() => {highlightTitle = !highlightTitle; persistSetting("highlightTitle", highlightTitle);}},
+      { icon: "💙", label: "Opacity", key: "dimOpacity", slider: true, min: 0.1, max: 0.9, step: 0.05, act: (val) => {dimOpacity = val; persistSetting("dimOpacity", dimOpacity); updateDimOpacityCss();}},
+      { icon: "❤️‍🔥", label: "Quick", state: () => turboMode, key: "turboMode", toggle: true, act: turboToggle },
       { icon: "💗", label: "Import", act: openImport },
       { icon: "💞", label: "Export", act: exportLikes },
       { icon: "💔", label: "Clear index", act: clearLikedIndexDoubleConfirm },
@@ -987,7 +1238,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         heartColorInput.value = badgeHeartColor;
         heartColorInput.addEventListener("change", (e) => {
           badgeHeartColor = e.target.value;
-          persistToggle("badgeHeartColor", badgeHeartColor);
+          persistSetting("badgeHeartColor", badgeHeartColor);
           updateBadgeHeartColorCss();
         });
         button.prepend(heartColorInput);
@@ -995,7 +1246,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         heartBackgroundColorInput.value = badgeBackgroundColor;
         heartBackgroundColorInput.addEventListener("change", (e) => {
           badgeBackgroundColor = e.target.value;
-          persistToggle("badgeBackgroundColor", badgeBackgroundColor);
+          persistSetting("badgeBackgroundColor", badgeBackgroundColor);
           updateBadgeBackgroundColorCss();
         });
         heartBackgroundColorInput.style.marginRight = "2px";
@@ -1065,7 +1316,6 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       align-content: center;
       cursor:pointer;
       box-shadow:0 3px 10px rgba(0,0,0,.35);
-      fill: white;
       overflow: clip;
       position: relative;
     `;
@@ -1183,7 +1433,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         colorInput.value = titleColor;
         colorInput.addEventListener("change", (e) => {
           titleColor = e.target.value;
-          persistToggle("titleColor", titleColor);
+          persistSetting("titleColor", titleColor);
           updateTitleColorCss();
         });
         b.prepend(colorInput);
@@ -1209,6 +1459,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     });
 
     document.body.appendChild(menuContainer);
+    if (!showHeartMenu) menuContainer.style.display = "none";
 
     // Re-enable pointer events on interactive elements
     menuContainer.querySelectorAll("button, input").forEach((el) => {
@@ -1263,6 +1514,14 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
         x.b.style.display = open ? "none" : display;
       });
       options.classList.toggle("visible", !open);
+    }
+
+    function turboToggle() {
+      const mode = turboMode ? "Disable" : "Enable";
+      if (!confirm(`${mode} quick mode?\n\nThis requires a page reload.`)) return;
+      turboMode = !turboMode;
+      persistSetting("turboMode", turboMode);
+      location.reload();
     }
 
     function openImport() {
