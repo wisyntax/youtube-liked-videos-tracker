@@ -15,8 +15,7 @@ Adds heart badges to liked video thumbnails with options to color their titles, 
 
 ---
 ## 📥 Initial Setup
-
-Before the script can mark videos, you need to import your liked videos. Choose one of these methods:
+Before the script can mark videos, you need to import your liked videos data. Choose one of these methods:
 
 ### Option A: The CSV Method (**Recommended** – tested with 45k+ likes)
 This is the most reliable method.
@@ -57,11 +56,6 @@ Scan your Liked Videos playlist directly on YouTube. Quick and easy, but limited
    - Or enter a specific number to override the default
 4. The script will auto-scroll and load videos until complete
 
-**Best for:**
-- Initial setup with fewer than 5,000 likes
-- Keeping your index updated with new likes from mobile, TV, or other browsers
-- Quick maintenance scans
-
 <details>
 <summary><b>Option C: Google Takeout (Not Recommended)</b></summary>
 
@@ -99,11 +93,10 @@ The script detects like/unlike actions in real-time and syncs across tabs.
 
 ---
 ### <img src="assets/icon.svg" alt="icon" style="width: 22px; vertical-align: bottom;"> Floating Heart Menu
-
 Access the script menu from the heart button in the bottom-right corner.
 
 **Main Menu:**
-- ❤️ **Show hearts** - Display heart overlays on liked videos (includes color picker in options)
+- ❤️ **Show indicators** - Display heart overlays on liked videos (includes color picker in options)
 - 🩵 **Dim liked videos** - Reduce opacity of liked videos
 - 🩶 **Hide liked videos** - Hide liked videos (disabled on Liked Videos playlist)
 - 💖 **Scan liked playlist** - Update script index (only visible on your [Liked Videos playlist](https://www.youtube.com/playlist?list=LL))
@@ -119,9 +112,20 @@ Access the script menu from the heart button in the bottom-right corner.
 All toggles persist across sessions.
 
 ---
-### 💾 Export & Backup
+### ⚙️ Script Manager Menu
+Access additional settings via your userscript manager's toolbar menu (click the extension icon → YouTube Liked Videos Tracker).
 
-Click **💞 Export** in the Options submenu to download your liked videos index as a JSON file.
+- **Show Heart Menu** - Toggle the floating heart menu on/off
+- **Use YouTube Like Icon** - Switch indicator badge style between heart and thumbs-up (requires page reload)
+- **Auto-Sync Recent Likes** - Configure how often to automatically sync recent likes
+- **Sync Recent Likes Now** - Immediately sync the last 100 liked videos to the script index
+- **Reset Default Settings** - Restore all settings to defaults (does not affect script index)
+
+Use Auto-Sync or Sync Now to keep your index updated with likes made on mobile, TV, or other browsers.
+
+---
+### 💾 Export & Backup
+Click **💞 Export** in the heart menu options to download your liked videos index as a JSON file.
 
 **When to export:**
 - Before clearing browser data or reinstalling
@@ -134,7 +138,7 @@ You can re-import this file anytime to restore your index.
 ## 🔐 Privacy & Security
 
 - **100% local** - Works entirely offline after installation
-- **No external requests** - Never connects to external servers
+- **No third-party requests** - Never connects to external servers
 - **No data collection** - No analytics, cookies, or telemetry sent anywhere
 - **No account access** - Read-only, never writes to your YouTube account
 - **Local storage only** - All data stays in your browser via userscript storage
