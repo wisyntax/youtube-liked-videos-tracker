@@ -11,7 +11,7 @@ Adds heart badges to liked video thumbnails with options to color their titles, 
 1. Install a userscript manager:
    - [**Tampermonkey**](https://www.tampermonkey.net/) (for Chromium browsers)
    - [**Violentmonkey**](https://violentmonkey.github.io/) (Recommended for Firefox)
-2. Install the script: [YouTubeLikedVideosTracker.user.js](https://github.com/wisyntax/youtube-liked-videos-tracker/raw/refs/heads/main/YouTubeLikedVideosTracker.user.js)
+2. Install the script: Go to [YouTube Liked Videos Tracker on Greasy Fork](https://greasyfork.org/en/scripts/566437-youtube-liked-videos-tracker) and click the install button.
 
 ---
 ## 📥 Initial Setup
@@ -96,7 +96,7 @@ The script detects like/unlike actions in real-time and syncs across tabs.
 Access the script menu from the heart button in the bottom-right corner.
 
 **Main Menu:**
-- ❤️ **Show indicators** - Display heart overlays on liked videos (includes color picker in options)
+- ❤️ **Show indicators** - Display badges on liked video thumbnails (includes color picker in options)
 - 🩵 **Dim liked videos** - Reduce opacity of liked videos
 - 🩶 **Hide liked videos** - Hide liked videos (disabled on Liked Videos playlist)
 - 💖 **Scan liked playlist** - Update script index (only visible on your [Liked Videos playlist](https://www.youtube.com/playlist?list=LL))
