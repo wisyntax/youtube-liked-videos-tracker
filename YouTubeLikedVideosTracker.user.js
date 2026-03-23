@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    https://github.com/wisyntax/youtube-liked-videos-tracker
-// @version      2.8
+// @version      2.9
 // @license      MIT
 // @description  Adds visual indicators to liked YouTube videos.
 // @author       wisyntax
@@ -267,8 +267,10 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 
 /* hide colorPicker when options not visible */
 #ytlvt-heart-menu:not(:has(#ytlvt-options-button.visible)) input[type="color"],
+
 /* hide showHearts colorpicker when not on */
 #ytlvt-showHearts-button:not(.showHearts-on) input[type="color"],
+
 /* hide highlightTitle colorpicker when not on  */
 #ytlvt-highlightTitle-button:not(.highlightTitle-on) input[type="color"]{
   display: none !important;
@@ -287,12 +289,15 @@ ytd-app[fullscreen] #ytlvt-heart-menu {
 
 /* greyout every other menu button when hide button enabled*/
 body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) .ytlvt-menu-button-container:not(:has(.hideLiked-on)),
+
 /* greyout highlightTitle when showHearts not on  */
 #ytlvt-heart-menu:not(:has(.showHearts-on)):not(:has(.hideLiked-on)) #ytlvt-highlightTitle-button,
 .ytlvt-liked-hide-disabled #ytlvt-heart-menu:not(:has(.showHearts-on)):has(.hideLiked-on) #ytlvt-highlightTitle-button,
+
 /* greyout opacity when dimLiked not on  */
 #ytlvt-heart-menu:not(:has(.dimLiked-on)):not(:has(.hideLiked-on)) #ytlvt-dimOpacity-button,
 .ytlvt-liked-hide-disabled #ytlvt-heart-menu:not(:has(.dimLiked-on)):has(.hideLiked-on) #ytlvt-dimOpacity-button,
+
 /* greyout hide button when disabled */
 body.ytlvt-liked-hide-disabled #ytlvt-hideLiked-button {
   filter: sepia();
@@ -475,7 +480,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
   }
 
   function getCurrentShortId() {
-    const activeShort = document.querySelector("ytd-reel-video-renderer[is-active]");
+    const activeShort = document.querySelector("ytd-reel-video-renderer");
     if (!activeShort) return null;
 
     const a = activeShort.querySelector('a[href*="/shorts/"]');
@@ -934,15 +939,12 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
       const start = html.indexOf(marker);
       if (start === -1) throw new Error("ytInitialData not found");
 
-      let depth = 0,
-        i = start + marker.length,
-        jsonStart = i;
-      for (; i < html.length; i++) {
-        if (html[i] === "{") depth++;
-        else if (html[i] === "}" && --depth === 0) break;
-      }
+      const jsonStart = start + marker.length;
+      const scriptEnd = html.indexOf(";</script>", jsonStart);
+      if (scriptEnd === -1) throw new Error("Could not find end of ytInitialData script");
 
-      const data = JSON.parse(html.slice(jsonStart, i + 1));
+      const data = JSON.parse(html.slice(jsonStart, scriptEnd));
+
       // prettier-ignore
       const videos =
       data?.contents
@@ -1289,7 +1291,7 @@ body:not(.ytlvt-liked-hide-disabled) #ytlvt-heart-menu:has(.hideLiked-on) #ytlvt
     mainButton.id = "ytlvt-menu-main-button";
     mainButton.type = "button";
     mainButton.onclick = toggleMenu;
-    // Create SVG directly cause youtube uses Trusted Types
+
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "-4 0 40 32");
     svg.style.cssText = "width:18px;aspect-ratio:1/1;scale:1.5;";
