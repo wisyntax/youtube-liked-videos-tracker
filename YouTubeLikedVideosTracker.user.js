@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Liked Videos Tracker
 // @namespace    https://github.com/wisyntax/youtube-liked-videos-tracker
-// @version      2.9
+// @version      2.10
 // @license      MIT
 // @description  Adds visual indicators to liked YouTube videos.
 // @author       wisyntax
@@ -176,6 +176,7 @@ body.ytlvt-liked-highlight-title :is(
   .ytp-modern-videowall-still,  /* video end wall */
   .ytp-autonav-endscreen-upnext-container  /* video autoplay - no need to add to hide */
 ):has(.ytlvt-liked-indicator:not(.ytlvt-liked-heart-hidden)) :is(
+  .ytLockupMetadataViewModelTitle,
   .yt-lockup-metadata-view-model__title,
   .ytp-ce-video-title,
   .ytp-videowall-still-info-title,
